@@ -18,7 +18,7 @@ import io.flutter.plugin.common.MethodChannel
  * aparece na documentação pública, mas é o indicado para o pacote 02.34.04.
  *
  * Como o bytecode do AAR dá a assinatura mas não os valores aceitos, quem
- * decide é o aparelho. Deixar os quatro parâmetros abertos permite tentar a
+ * decide é o aparelho — e em 09/2026 o M10 Pro decidiu: `(6, "M8")` conecta. Deixar os quatro parâmetros abertos permite tentar a
  * outra combinação sem recompilar — e evita fixar no código um número que
  * ninguém conseguiu confirmar.
  *

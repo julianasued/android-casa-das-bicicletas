@@ -132,6 +132,9 @@ class ElginPrinter {
   /// descreve 1 a 5 (5 = impressoras embarcadas) e o exemplo oficial em Flutter
   /// usa `(5, "")`, enquanto o pacote 02.34.04 indica `(6, "M8")`. O padrão
   /// segue o pacote; trocar para testar a outra combinação não exige recompilar.
+  ///
+  /// Testado no M10 Pro em 09/2026: `(6, "M8")` conecta, e o `(5, "")` da
+  /// documentação nem chegou a ser necessário.
   static Future<void> open({
     int type = 6,
     String model = 'M8',

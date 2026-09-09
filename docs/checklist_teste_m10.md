@@ -25,17 +25,55 @@ ativada.
 
 ### Conexão — a primeira pergunta a responder
 
-- [ ] Com `tipo 6` e modelo `M8` (padrão), **Abrir** funciona?
+- [x] Com `tipo 6` e modelo `M8` (padrão), **Abrir** funciona?
 - [ ] Se não, tentar `tipo 5` e modelo vazio na própria tela
-- [ ] **Anotar** qual combinação funcionou e o código de erro da que falhou
+- [x] **Anotar** qual combinação funcionou e o código de erro da que falhou
 - [ ] Versão do SDK e número de série aparecem no painel após abrir
+
+**RESPONDIDO (09/09/2026, M10 Pro, SDK 02.34.04):** `tipo 6` + modelo `M8`
+conecta — o painel mostrou "impressora conectada". Não foi preciso recorrer ao
+`tipo 5`/vazio.
+
+Isto resolve a pendência aberta no commit do plugin: a combinação funciona
+mesmo **não constando da documentação pública** da Elgin, que descreve tipo
+de 1 a 5 e cujo exemplo oficial usa `(5, "")`. O padrão do código
+(`PrinterHandler.DEFAULT_CONNECTION_TYPE = 6`, `DEFAULT_MODEL = "M8"`) está
+certo e não precisa mudar.
 
 ### Status — a segunda pergunta
 
-- [ ] **Anotar** `StatusImpressora` bruto com a bobina **cheia**
-- [ ] **Anotar** com a bobina **vazia**
-- [ ] **Anotar** com a **tampa aberta**
+- [x] **Anotar** `StatusImpressora` bruto com a bobina **cheia**
+- [x] **Anotar** com a bobina **vazia**
+- [x] **Anotar** com a **tampa aberta**
 - [ ] **Anotar** com a impressora ocupada, se der para reproduzir
+
+**RESPONDIDO (09/09/2026, M10 Pro, SDK 02.34.04).** Retorno bruto de
+`StatusImpressora(param)` nos quatro estados testados:
+
+| Assunto (`param`)  | Papel + tampa fechada | Sem papel | Tampa aberta (com bobina) | Sem papel + tampa aberta |
+| ------------------ | --------------------- | --------- | ------------------------- | ------------------------ |
+| `drawer` (1)       | −126                  | −126      | −126                      | −126                     |
+| `cover` (2)        | 4                     | 4         | 4                         | 4                        |
+| `paper` (3)        | **5**                 | **7**     | **7**                     | **7**                    |
+| `ejector` (4)      | −126                  | −126      | −126                      | −126                     |
+| `general` (5)      | −126                  | −126      | −126                      | −126                     |
+
+O que isto significa para o aplicativo:
+
+- **Só `paper` serve.** `5` = pronto para imprimir; `7` = não dá para imprimir.
+- **Tampa aberta e falta de papel são indistinguíveis:** os dois dão `paper 7`.
+  O aviso ao operador tem de cobrir os dois casos — algo como "verifique o
+  papel e a tampa", nunca afirmar qual dos dois é.
+- **`cover` é inerte.** Ficou em `4` nos quatro estados, inclusive de tampa
+  aberta. Não usar para detectar a tampa.
+- **−126 é "não aplicável".** Constante em `drawer`, `ejector` e `general`, que
+  o M10 Pro não expõe (não tem gaveta nem ejetor). Tratar qualquer negativo
+  como ausência de informação, não como estado de erro.
+
+Só `paper` deve alimentar a verificação que antecede a impressão da notinha.
+Diferença entre `5` e `7` é de um bit (`101` → `111`), mas a hipótese de
+máscara de bits **não se confirmou**: se valesse, a tampa aberta teria levado
+`cover` de `4` para `6`, e ela não se moveu. Fica o mapeamento literal.
 
 ### Impressão
 
