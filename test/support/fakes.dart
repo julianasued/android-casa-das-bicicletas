@@ -8,6 +8,9 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+
 import 'package:casa_das_bicicletas/app/dependencies.dart';
 import 'package:casa_das_bicicletas/core/env.dart';
 import 'package:casa_das_bicicletas/data/remote/api_client.dart';
@@ -75,6 +78,36 @@ HttpResponse errorResponse({
       statusCode: statusCode,
     );
 
+/// Respostas canned para os canais de plataforma.
+///
+/// Sem isto a chamada fica pendente para sempre no messenger do `flutter_test`
+/// — e como a `BootstrapPage` espera por `connectivity.start()` antes de
+/// decidir a rota, o aplicativo nunca saía do "Abrindo o terminal..." e todo
+/// `pumpAndSettle` estourava. O canal continua sendo o de verdade; o que se
+/// substitui é só o outro lado da fronteira.
+void _stubPlatformChannels() {
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+  messenger.setMockMethodCallHandler(
+    const MethodChannel(ConnectivityChannel.methodChannelName),
+    (call) async => call.method == 'isOnline' ? true : null,
+  );
+
+  // O terminal homologado, para que a tela de configuração mostre o aparelho.
+  messenger.setMockMethodCallHandler(
+    const MethodChannel(DeviceChannel.channelName),
+    (call) async => call.method == 'info'
+        ? <String, Object?>{
+            'android_id': 'M10-ANDROID-ID',
+            'model': 'M10',
+            'manufacturer': 'Elgin',
+            'android_version': '11',
+          }
+        : null,
+  );
+}
+
 /// Grafo de dependências para os testes, com rede e hardware substituídos.
 AppDependencies buildTestDependencies({
   RecordingTransport? transport,
@@ -84,6 +117,9 @@ AppDependencies buildTestDependencies({
   SecureStore? secureStore,
   String baseUrl = 'https://api.teste.local/api/v1/',
 }) {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  _stubPlatformChannels();
+
   final environment = AppEnvironment(
     apiBaseUrl: baseUrl,
     requestTimeout: const Duration(seconds: 5),

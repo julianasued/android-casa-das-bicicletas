@@ -73,7 +73,7 @@ void main() {
       expect(totals.gross - totals.discount, totals.total);
     });
 
-    test('desconto de 5% sobre R$ 1.500,00 é R$ 75,00', () {
+    test(r'desconto de 5% sobre R$ 1.500,00 é R$ 75,00', () {
       final totals = computeTotals(
         lineGrosses: const [Money.fromCents(150000)],
         discountPercentHundredths: maxDiscountPercentHundredths,
