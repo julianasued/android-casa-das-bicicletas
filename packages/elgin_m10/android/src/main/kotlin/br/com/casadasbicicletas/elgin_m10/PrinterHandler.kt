@@ -45,10 +45,15 @@ class PrinterHandler(private val executor: ElginExecutor) {
                 val connection = call.argument<String>("connection").orEmpty()
                 val parameter = call.argument<Int>("parameter") ?: 0
 
-                checkElgin(
-                    "AbreConexaoImpressora($type, \"$model\")",
-                    Termica.AbreConexaoImpressora(type, model, connection, parameter),
-                )
+                // `CONEXAO_ATIVA` não é falha: já estar aberta é o resultado
+                // desejado. As classes da E1 são estáticas, então a conexão
+                // pertence ao processo e sobrevive à tela que a abriu — depois
+                // de uma troca de tela, reabrir devolvia -6 e a impressora
+                // "sumia" no meio do atendimento.
+                val code = Termica.AbreConexaoImpressora(type, model, connection, parameter)
+                if (code != CONEXAO_ATIVA) {
+                    checkElgin("AbreConexaoImpressora($type, \"$model\")", code)
+                }
                 null
             }
 
@@ -195,6 +200,9 @@ class PrinterHandler(private val executor: ElginExecutor) {
 
         // `param` de StatusImpressora — significado dos parâmetros publicado
         // pela Elgin; o dos retornos, não.
+        /** `CodigoErro.CONEXAO_ATIVA` do AAR: a conexão já estava de pé. */
+        const val CONEXAO_ATIVA = -6
+
         const val STATUS_DRAWER = 1
         const val STATUS_COVER = 2
         const val STATUS_PAPER = 3

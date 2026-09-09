@@ -126,8 +126,21 @@ class ElginException(
  * Toda chamada passa por aqui. É a diferença entre "o comando foi enviado" e "o
  * comando funcionou" — sem isto, uma impressora sem papel devolveria sucesso
  * para o Dart e o defeito só apareceria no papel que não saiu.
+ *
+ * **Só valor negativo é erro.** A tabela `CodigoErro` do próprio AAR e a
+ * documentação da Elgin listam `SUCESSO = 0` e todo o resto em faixas
+ * negativas (-2 a -6 conexão, -41 a -44 escrita, -51 a -53 QRCode...); não
+ * existe erro positivo. Algumas funções devolvem um positivo com significado
+ * próprio — `ImpressaoTexto` devolve quantos bytes escreveu —, e tratar isso
+ * como falha reprovava impressão que tinha dado certo.
+ *
+ * Conferido no M10 Pro em 09/2026: imprimir "CASA DAS BICICLETAS" devolve 20,
+ * que são os 19 caracteres mais a quebra de linha. O texto fica no buffer da
+ * impressora e sai no primeiro avanço de papel — tinha funcionado o tempo
+ * todo. Como a POC abortava na primeira linha, o `feed`/`cut` do fim da
+ * sequência nunca rodava e o papel parecia em branco.
  */
 fun checkElgin(operation: String, code: Int): Int {
-    if (code == 0) return code
+    if (code >= 0) return code
     throw ElginException(code, operation, "$operation falhou (código $code).")
 }

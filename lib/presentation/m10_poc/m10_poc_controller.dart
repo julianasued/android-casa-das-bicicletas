@@ -79,9 +79,10 @@ class M10PocController extends ChangeNotifier {
 
   /// Toda impressão abre a conexão antes.
   ///
-  /// `AbreConexaoImpressora` devolve "conexão já ativa" quando já está aberta,
-  /// e o plugin trata isso como erro — então o estado é guardado aqui em vez de
-  /// se tentar abrir de novo a cada botão.
+  /// O estado é guardado aqui só para poupar a chamada: `AbreConexaoImpressora`
+  /// devolve "conexão já ativa" quando já está aberta, e o plugin passou a
+  /// tratar isso como sucesso — reabrir por engano não derruba mais a
+  /// impressora.
   Future<void> _withPrinter(Future<void> Function() action) async {
     if (!_printerOpen) {
       await ElginPrinter.open(type: connectionType, model: connectionModel);
