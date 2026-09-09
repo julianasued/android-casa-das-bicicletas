@@ -11,3 +11,9 @@
 # Serviço nativo do terminal (impressora e display fazem bind por AIDL).
 -keep class net.nyx.** { *; }
 -dontwarn net.nyx.**
+
+# Anotações de compilação referenciadas pelo Tink, que vem no armazenamento
+# seguro. Existem só no código-fonte — em tempo de execução ninguém as procura,
+# e sem estas linhas o R8 aborta o release reclamando de classe ausente.
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
