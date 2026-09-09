@@ -5,8 +5,6 @@
 /// compartilham a mesma conexão — só criaria a ilusão de isolamento.
 library;
 
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 import 'elgin_exception.dart';

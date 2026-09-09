@@ -6,8 +6,6 @@
 /// esquecer uma.
 library;
 
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 import 'elgin_exception.dart';

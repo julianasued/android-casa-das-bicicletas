@@ -7,8 +7,6 @@
 /// apareceria no papel, no M10, no dia do teste.
 library;
 
-import 'dart:typed_data';
-
 import 'package:elgin_m10/elgin_m10.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

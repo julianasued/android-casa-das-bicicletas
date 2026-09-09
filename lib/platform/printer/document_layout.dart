@@ -196,7 +196,7 @@ class DocumentLayout {
       // Não cabe: o valor é o que não pode ser cortado, então o rótulo cede.
       final available = columns - right.length - 1;
       final trimmed = available > 0 ? left.substring(0, available) : '';
-      return '$trimmed ${right}';
+      return '$trimmed $right';
     }
     return '$left${' ' * space}$right';
   }
