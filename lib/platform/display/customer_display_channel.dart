@@ -1,92 +1,123 @@
-/// Display do cliente do M10, atrás de um canal de método.
+/// Display do cliente do M10, sobre o plugin `elgin_m10`.
 ///
-/// ## Estado: PENDENTE DE VALIDAÇÃO
+/// A porta `CustomerDisplay` nasceu como abstração vazia, quando a
+/// documentação pública da Elgin não descrevia display algum. O SDK descreve:
+/// `com.elgin.e1.Display.E1_Display` tem `M10_PRO` entre os aparelhos
+/// suportados, e é o plugin quem fala com ele. Esta classe é a tradução entre a
+/// porta do domínio e o plugin.
 ///
-/// Não existe API pública da Elgin para este display (ver
-/// `domain/ports/customer_display.dart`). Este canal **não inventa comandos**:
-/// `show` e `clear` respondem com uma falha explicando a pendência, e `probe`
-/// devolve o que a API padrão do Android sabe — quantas telas o aparelho expõe
-/// e quais são as secundárias.
-///
-/// Esse `probe` não é enfeite: é o dado que decide o caminho da implementação.
-/// Se o display aparecer como `Display` secundário, dá para escrever nele com
-/// `Presentation`, sem SDK nenhum. Se não aparecer, o controle é proprietário e
-/// depende do `.aar` de display e da documentação correspondente.
+/// O `probe` continua vindo do canal legado (`CustomerDisplayChannel.kt`),
+/// porque ele responde outra pergunta: quantas telas o **Android** enxerga.
+/// Serve de diagnóstico quando `open()` falha — se não há tela secundária nem
+/// serviço, o problema é o aparelho, não o código.
 library;
 
+import 'package:elgin_m10/elgin_m10.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/failure.dart';
 import '../../core/result.dart';
 import '../../domain/ports/customer_display.dart';
 
-/// Código combinado com o lado Kotlin para "ainda não implementado".
-const String customerDisplayUnsupportedCode = 'DISPLAY_UNSUPPORTED';
-
 class M10CustomerDisplay implements CustomerDisplay {
-  const M10CustomerDisplay({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel(channelName);
+  M10CustomerDisplay({MethodChannel? probeChannel})
+      : _probeChannel = probeChannel ?? const MethodChannel(probeChannelName);
 
-  static const String channelName =
+  /// Canal legado, usado só para o levantamento de telas do Android.
+  static const String probeChannelName =
       'br.com.casadasbicicletas.vendas/customer_display';
 
-  final MethodChannel _channel;
+  final MethodChannel _probeChannel;
+
+  bool _open = false;
 
   @override
   Future<Result<CustomerDisplayStatus>> probe() async {
+    Map<String, Object?> android = const <String, Object?>{};
     try {
-      final raw = await _channel.invokeMapMethod<String, Object?>('probe');
-      if (raw == null) {
-        return const Ok(
-          CustomerDisplayStatus.unavailable('O canal do display não respondeu.'),
-        );
-      }
+      android = await _probeChannel.invokeMapMethod<String, Object?>('probe') ??
+          const <String, Object?>{};
+    } on PlatformException {
+      // Levantamento é acessório: sem ele ainda dá para tentar abrir.
+    } on MissingPluginException {
+      // Fora do terminal.
+    }
 
-      final displays = raw['secondary_displays'];
+    // Abrir e fechar é a única prova real de que o display responde: o SDK só
+    // diz que existe quando o serviço aceita a conexão.
+    try {
+      await ElginDisplay.open();
+      await ElginDisplay.close();
+
       return Ok(
         CustomerDisplayStatus(
-          available: raw['sdk_available'] as bool? ?? false,
-          hasSecondaryDisplay: raw['has_secondary_display'] as bool? ?? false,
-          secondaryDisplays: _describeDisplays(displays),
-          detail: raw['detail']?.toString() ?? '',
+          available: true,
+          hasSecondaryDisplay: android['has_secondary_display'] as bool? ?? false,
+          secondaryDisplays: _describe(android['secondary_displays']),
+          detail: 'Display respondeu pelo SDK da Elgin (M10_PRO).',
         ),
       );
-    } on PlatformException catch (error) {
+    } on ElginException catch (error) {
       return Ok(
-        CustomerDisplayStatus.unavailable(
-          error.message ?? 'Falha ao consultar o display.',
-        ),
-      );
-    } on MissingPluginException {
-      return const Ok(
-        CustomerDisplayStatus.unavailable(
-          'Canal do display indisponível neste aparelho.',
+        CustomerDisplayStatus(
+          available: false,
+          hasSecondaryDisplay: android['has_secondary_display'] as bool? ?? false,
+          secondaryDisplays: _describe(android['secondary_displays']),
+          detail: 'SDK: ${error.message}',
         ),
       );
     }
   }
 
-  List<String> _describeDisplays(Object? value) {
-    if (value is! List) return const <String>[];
-
-    return [
-      for (final item in value)
-        if (item is Map)
-          '#${item['id']} ${item['name'] ?? ''}'.trim(),
-    ];
+  @override
+  Future<Result<void>> show(List<String> lines) async {
+    try {
+      await _ensureOpen();
+      // O SDK escreve uma chamada por linha; juntar com quebra de linha
+      // dependeria de um comportamento que a Elgin não documenta.
+      for (final line in lines) {
+        await ElginDisplay.showText(line);
+      }
+      return const Ok(null);
+    } on ElginException catch (error) {
+      return Err(_failureFor(error));
+    }
   }
 
   @override
-  Future<Result<void>> show(List<String> lines) =>
-      _unsupported('escrever no display');
+  Future<Result<void>> clear() async {
+    try {
+      await _ensureOpen();
+      // Não há "limpar" na API: reinicializar é o que devolve o display ao
+      // estado inicial sem derrubar a conexão.
+      await ElginDisplay.reinitialize();
+      return const Ok(null);
+    } on ElginException catch (error) {
+      return Err(_failureFor(error));
+    }
+  }
 
-  @override
-  Future<Result<void>> clear() => _unsupported('limpar o display');
+  Future<void> _ensureOpen() async {
+    if (_open) return;
+    await ElginDisplay.open();
+    _open = true;
+  }
 
-  Future<Result<void>> _unsupported(String operation) async => Err(
-        BusinessRuleFailure(
-          'Não é possível $operation: a Elgin não publica API para o display do '
-          'cliente. Pendente de validação no M10 físico.',
-        ),
+  Failure _failureFor(ElginException error) {
+    _open = false;
+    if (error.isUnavailable) {
+      return BusinessRuleFailure(
+        'Display do cliente indisponível neste terminal: ${error.message}',
       );
+    }
+    return BusinessRuleFailure('Falha no display do cliente: ${error.message}');
+  }
+
+  List<String> _describe(Object? value) {
+    if (value is! List) return const <String>[];
+    return [
+      for (final item in value)
+        if (item is Map) '#${item['id']} ${item['name'] ?? ''}'.trim(),
+    ];
+  }
 }

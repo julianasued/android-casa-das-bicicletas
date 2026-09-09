@@ -86,7 +86,7 @@ class AppDependencies {
       printer: printer,
       printerDiagnostics: printer,
       scanner: ScannerChannel(),
-      customerDisplay: const M10CustomerDisplay(),
+      customerDisplay: M10CustomerDisplay(),
       connectivity: ConnectivityChannel(),
       device: const DeviceChannel(),
     );

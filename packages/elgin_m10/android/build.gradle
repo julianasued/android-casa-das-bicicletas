@@ -1,0 +1,58 @@
+group = "br.com.casadasbicicletas.elgin_m10"
+version = "0.1.0"
+
+buildscript {
+    ext.kotlin_version = "2.1.0"
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.7.0"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    namespace = "br.com.casadasbicicletas.elgin_m10"
+    compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17.toString()
+    }
+
+    defaultConfig {
+        // Exigência do SDK E1.
+        minSdk = 21
+    }
+}
+
+dependencies {
+    // Símbolos do E1 apenas para compilar.
+    //
+    // Por que o `classes.jar` e não o `.aar`: o AGP recusa dependência direta de
+    // `.aar` local em módulo de biblioteca ("Direct local .aar file dependencies
+    // are not supported when building an Android library"). E por que
+    // `compileOnly`: quem empacota o SDK de verdade — com os `.so`, os recursos
+    // e o AIDL — é o módulo do aplicativo (`android/app/build.gradle`).
+    // Declarar `implementation` aqui também colocaria as mesmas classes no dex
+    // duas vezes.
+    //
+    // O arquivo é gerado a partir do AAR; ver README.md do plugin.
+    compileOnly files("libs/e1-classes.jar")
+}

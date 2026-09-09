@@ -20,8 +20,8 @@ android {
 
     defaultConfig {
         applicationId = "br.com.casadasbicicletas.vendas"
-        // O Elgin M10 Pro roda Android 11 (API 30); 24 mantém margem para
-        // outros terminais de teste.
+        // O Elgin M10 Pro roda Android 11 (API 30) e o SDK E1 exige API 21 ou
+        // superior; 24 mantém margem para outros terminais de teste.
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -32,6 +32,12 @@ android {
         release {
             // TODO: substituir pela assinatura de release antes da distribuição.
             signingConfig = signingConfigs.debug
+
+            // O SDK da Elgin é chamado por reflexão em parte do código e resolve
+            // implementações por nome; ofuscar as classes dele quebraria a
+            // impressora só em release, que é o pior momento para descobrir.
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
         }
     }
 }
@@ -45,30 +51,21 @@ dependencies {
     // EncryptedSharedPreferences com chave no Keystore do Android.
     implementation "androidx.security:security-crypto:1.1.0-alpha06"
 
-    // SDKs da Elgin. Os arquivos são distribuídos pelo fabricante, não estão em
-    // repositório público e não são versionados aqui — coloque-os em
-    // `android/app/libs/` (ver libs/README.md). O exemplo oficial do M8/M10
-    // usa exatamente estas duas linhas de fileTree.
-    // Sem os arquivos o projeto compila do mesmo jeito, e a impressora responde
-    // PRINTER_UNAVAILABLE — o caso previsto no §11 da especificação.
+    // SDK da Elgin (pacote oficial e1_v02.34.04). Os arquivos são binários
+    // proprietários, distribuídos com o terminal, e não são versionados — ver
+    // libs/README.md.
+    //
+    // A declaração fica **aqui**, no módulo do aplicativo, e não no plugin:
+    // é este módulo que empacota o APK, e declarar os mesmos AARs nos dois
+    // daria classe duplicada no dex. O plugin os referencia como `compileOnly`
+    // (ver packages/elgin_m10/android/build.gradle).
     implementation fileTree(dir: "libs", include: ["*.aar"])
     implementation fileTree(dir: "libs", include: ["*.jar"])
 
-    // Dependência que a documentação oficial do E1 Android lista como exigida
-    // (elgindevelopercommunity.github.io, "Linha PosGo e M10"), e que o exemplo
-    // oficial em Flutter também declara.
+    // Dependências que a documentação oficial do E1 Android e o exemplo oficial
+    // em Flutter do M8/M10 declaram.
     implementation "androidx.startup:startup-runtime:1.1.0"
-
-    // A documentação do E1 lista também ZXing e RxJava/RxAndroid. O exemplo
-    // oficial em Flutter do M8/M10 **não** os declara e ainda assim funciona,
-    // então eles não entram enquanto não houver necessidade comprovada: este
-    // aplicativo não decodifica código por câmera, e acrescentar biblioteca sem
-    // uso é peso morto no APK do terminal.
-    //
-    // Se o `.aar` do E1 falhar em tempo de execução com NoClassDefFoundError
-    // apontando para `com.google.zxing` ou `io.reactivex`, descomente:
-    //
-    // implementation "com.google.zxing:core:3.4.0"
-    // implementation "io.reactivex.rxjava2:rxjava:2.1.8"
-    // implementation "io.reactivex.rxjava2:rxandroid:2.0.1"
+    implementation "androidx.appcompat:appcompat:1.3.0"
+    implementation "org.apache.commons:commons-lang3:3.9"
+    implementation "com.google.code.gson:gson:2.8.6"
 }
