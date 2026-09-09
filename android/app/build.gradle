@@ -39,3 +39,16 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Armazenamento seguro do token do terminal (§12 da integração com o M10):
+    // EncryptedSharedPreferences com chave no Keystore do Android.
+    implementation "androidx.security:security-crypto:1.1.0-alpha06"
+
+    // SDK da impressora térmica da Elgin. O .aar é distribuído pelo fabricante
+    // e não está em repositório público nem versionado aqui — coloque-o em
+    // `android/app/libs/` (ver libs/README.md). Sem ele o projeto compila do
+    // mesmo jeito, e a impressora responde PRINTER_UNAVAILABLE, que é o caso
+    // previsto no §11 da especificação de integração.
+    implementation fileTree(dir: "libs", include: ["*.aar", "*.jar"])
+}

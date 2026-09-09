@@ -23,5 +23,9 @@ android/key.properties
 *.jks
 *.keystore
 
+# SDK proprietário da Elgin (ver android/app/libs/README.md)
+android/app/libs/*.aar
+android/app/libs/*.jar
+
 # Cobertura de testes
 coverage/

@@ -1,0 +1,204 @@
+/// Estado da tela de nova venda.
+///
+/// A regra fica no `SaleDraft` (domínio); aqui mora só o que é de tela — o
+/// texto da busca, a lista de resultados, se há requisição em curso. A
+/// separação importa porque a Sprint 9 vai reaproveitar o `SaleDraft` na fila
+/// local, e nada do que está neste arquivo faz sentido dentro do SQLite.
+library;
+
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
+import '../../core/failure.dart';
+import '../../core/quantity.dart';
+import '../../core/result.dart';
+import '../../domain/entities/barcode_read.dart';
+import '../../domain/entities/customer.dart';
+import '../../domain/entities/payment_method.dart';
+import '../../domain/entities/product.dart';
+import '../../domain/ports/barcode_scanner.dart';
+import '../../domain/repositories/catalog_repository.dart';
+import '../../domain/rules/sale_draft.dart';
+import '../../domain/rules/sale_pricing.dart';
+import '../../domain/usecases/create_sale.dart';
+
+class NewSaleController extends ChangeNotifier {
+  NewSaleController({
+    required CatalogRepository catalog,
+    required CreateSale createSale,
+    required BarcodeScanner scanner,
+  })  : _catalog = catalog,
+        _createSale = createSale,
+        _scanner = scanner {
+    _listenScanner();
+  }
+
+  final CatalogRepository _catalog;
+  final CreateSale _createSale;
+  final BarcodeScanner _scanner;
+
+  final SaleDraft draft = SaleDraft();
+
+  List<Product> _results = const <Product>[];
+  Failure? _searchFailure;
+  bool _searching = false;
+  bool _submitting = false;
+  String? _lastScannedCode;
+
+  StreamSubscription<BarcodeRead>? _scannerSubscription;
+  Timer? _debounce;
+
+  List<Product> get results => _results;
+  Failure? get searchFailure => _searchFailure;
+  bool get isSearching => _searching;
+  bool get isSubmitting => _submitting;
+  SaleTotals get totals => draft.totals;
+  List<SaleDraftProblem> get problems => draft.problems;
+  bool get canFinish => draft.canBeFinished && !_submitting;
+
+  /// Último código lido — realimenta o operador de que o bipe funcionou.
+  String? get lastScannedCode => _lastScannedCode;
+
+  // -------------------------------------------------------------------------
+  // Catálogo
+  // -------------------------------------------------------------------------
+
+  /// Busca com atraso curto: cada tecla digitada não vira uma requisição.
+  void searchDebounced(String query) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () => search(query));
+  }
+
+  Future<void> search(String query) async {
+    _searching = true;
+    _searchFailure = null;
+    notifyListeners();
+
+    final result = await _catalog.searchProducts(query: query);
+
+    _searching = false;
+    switch (result) {
+      case Ok(:final value):
+        _results = value;
+      case Err(:final failure):
+        _searchFailure = failure;
+        _results = const <Product>[];
+    }
+    notifyListeners();
+  }
+
+  void _listenScanner() {
+    // O leitor também serve para montar a venda, não só para o caixa: bipar a
+    // etiqueta do produto é mais rápido e mais confiável do que digitar o SKU.
+    _scannerSubscription = _scanner.reads.listen(
+      (read) => unawaited(addByBarcode(read.code)),
+      onError: (Object _) {},
+    );
+    unawaited(_scanner.start());
+  }
+
+  /// Adiciona o produto cujo código de barras foi lido.
+  Future<Failure?> addByBarcode(String code) async {
+    _lastScannedCode = code;
+    notifyListeners();
+
+    final result = await _catalog.findByBarcode(code);
+
+    return switch (result) {
+      Err(:final failure) => failure,
+      Ok(:final value) => _addFound(value, code),
+    };
+  }
+
+  Failure? _addFound(Product? product, String code) {
+    if (product == null) {
+      return BusinessRuleFailure('Nenhum produto com o código "$code".');
+    }
+    add(product);
+    return null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Carrinho
+  // -------------------------------------------------------------------------
+
+  void add(Product product) {
+    draft.add(product);
+    notifyListeners();
+  }
+
+  void setQuantity(int productId, Quantity quantity) {
+    draft.setQuantity(productId, quantity);
+    notifyListeners();
+  }
+
+  void increment(int productId) {
+    final line = _lineFor(productId);
+    if (line == null) return;
+    setQuantity(productId, line.quantity + const Quantity.units(1));
+  }
+
+  void decrement(int productId) {
+    final line = _lineFor(productId);
+    if (line == null) return;
+    setQuantity(productId, line.quantity - const Quantity.units(1));
+  }
+
+  SaleDraftLine? _lineFor(int productId) {
+    for (final line in draft.lines) {
+      if (line.product.id == productId) return line;
+    }
+    return null;
+  }
+
+  void remove(int productId) {
+    draft.remove(productId);
+    notifyListeners();
+  }
+
+  void setPaymentMethod(PaymentMethod method) {
+    draft.paymentMethod = method;
+    // Trocar de notinha para outra forma não apaga o cliente: ele continua
+    // sendo uma informação útil da venda, e voltar para notinha é comum.
+    notifyListeners();
+  }
+
+  void setCustomer(Customer? customer) {
+    draft.customer = customer;
+    notifyListeners();
+  }
+
+  /// Desconto em centésimos de percentual; acima do teto o domínio recusa (13.3).
+  void setDiscountPercent(int hundredths) {
+    draft.discountPercentHundredths = hundredths;
+    notifyListeners();
+  }
+
+  // -------------------------------------------------------------------------
+  // Finalização
+  // -------------------------------------------------------------------------
+
+  Future<Result<SaleFinished>> finish() async {
+    if (_submitting) {
+      return const Err(BusinessRuleFailure('A venda já está sendo enviada.'));
+    }
+
+    _submitting = true;
+    notifyListeners();
+
+    final result = await _createSale(draft);
+
+    _submitting = false;
+    notifyListeners();
+    return result;
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    unawaited(_scannerSubscription?.cancel());
+    unawaited(_scanner.stop());
+    super.dispose();
+  }
+}
