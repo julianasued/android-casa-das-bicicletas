@@ -77,10 +77,30 @@ máscara de bits **não se confirmou**: se valesse, a tampa aberta teria levado
 
 ### Impressão
 
-- [ ] Texto sai legível
-- [ ] Alinhamento: esquerda, centro e direita nas posições certas
-- [ ] Negrito, sublinhado, altura dupla e largura dupla saem diferentes entre si
+- [x] Texto sai legível
+- [x] Alinhamento: esquerda, centro e direita nas posições certas
+- [x] Negrito, sublinhado, altura dupla e largura dupla saem diferentes entre si
 - [ ] CODE 128 sai e é legível por um leitor
+
+**O que esta primeira impressão custou (09/09/2026).** O cupom só saiu depois
+de corrigir dois defeitos do plugin, os dois encontrados aqui:
+
+1. **Retorno positivo não é erro.** `ImpressaoTexto` devolveu `20` — os 19
+   caracteres de "CASA DAS BICICLETAS" mais a quebra de linha — e o
+   `checkElgin` reprovava qualquer valor diferente de zero. A impressão tinha
+   funcionado; o texto estava no buffer, e como a sequência abortava na
+   primeira linha, o `feed`/`cut` do fim nunca rodava e o papel parecia vazio.
+   Só valor **negativo** é erro, conforme a tabela `CodigoErro` do AAR e a
+   documentação da Elgin.
+2. **`CONEXAO_ATIVA` (-6) não é falha.** As classes da E1 são estáticas e a
+   conexão pertence ao processo, então ela sobrevive à tela que a abriu.
+   Depois de trocar de tela, reabrir devolvia -6 e a impressora ficava
+   inacessível.
+
+Fica o aviso para quem for depurar impressão neste aparelho: **papel em branco
+não significa que o comando falhou.** A impressora é bufferizada e só descarrega
+no avanço de papel — confirme com "Avançar papel" antes de concluir que nada
+foi impresso.
 - [ ] EAN-13 sai e é legível
 - [ ] EAN-8 sai e é legível
 - [ ] QR Code sai e é legível por um celular
