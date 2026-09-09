@@ -45,10 +45,30 @@ dependencies {
     // EncryptedSharedPreferences com chave no Keystore do Android.
     implementation "androidx.security:security-crypto:1.1.0-alpha06"
 
-    // SDK da impressora térmica da Elgin. O .aar é distribuído pelo fabricante
-    // e não está em repositório público nem versionado aqui — coloque-o em
-    // `android/app/libs/` (ver libs/README.md). Sem ele o projeto compila do
-    // mesmo jeito, e a impressora responde PRINTER_UNAVAILABLE, que é o caso
-    // previsto no §11 da especificação de integração.
-    implementation fileTree(dir: "libs", include: ["*.aar", "*.jar"])
+    // SDKs da Elgin. Os arquivos são distribuídos pelo fabricante, não estão em
+    // repositório público e não são versionados aqui — coloque-os em
+    // `android/app/libs/` (ver libs/README.md). O exemplo oficial do M8/M10
+    // usa exatamente estas duas linhas de fileTree.
+    // Sem os arquivos o projeto compila do mesmo jeito, e a impressora responde
+    // PRINTER_UNAVAILABLE — o caso previsto no §11 da especificação.
+    implementation fileTree(dir: "libs", include: ["*.aar"])
+    implementation fileTree(dir: "libs", include: ["*.jar"])
+
+    // Dependência que a documentação oficial do E1 Android lista como exigida
+    // (elgindevelopercommunity.github.io, "Linha PosGo e M10"), e que o exemplo
+    // oficial em Flutter também declara.
+    implementation "androidx.startup:startup-runtime:1.1.0"
+
+    // A documentação do E1 lista também ZXing e RxJava/RxAndroid. O exemplo
+    // oficial em Flutter do M8/M10 **não** os declara e ainda assim funciona,
+    // então eles não entram enquanto não houver necessidade comprovada: este
+    // aplicativo não decodifica código por câmera, e acrescentar biblioteca sem
+    // uso é peso morto no APK do terminal.
+    //
+    // Se o `.aar` do E1 falhar em tempo de execução com NoClassDefFoundError
+    // apontando para `com.google.zxing` ou `io.reactivex`, descomente:
+    //
+    // implementation "com.google.zxing:core:3.4.0"
+    // implementation "io.reactivex.rxjava2:rxjava:2.1.8"
+    // implementation "io.reactivex.rxjava2:rxandroid:2.0.1"
 }

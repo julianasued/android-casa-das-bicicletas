@@ -1,5 +1,6 @@
 package br.com.casadasbicicletas.vendas.platform
 
+import android.app.Activity
 import android.os.Handler
 import android.os.Looper
 import io.flutter.plugin.common.BinaryMessenger
@@ -15,9 +16,15 @@ import java.util.concurrent.Executors
  * travaria a interface no exato momento em que o vendedor está com o cliente na
  * frente — daí o executor próprio, com a resposta devolvida na thread principal,
  * que é a única onde o `MethodChannel` pode responder.
+ *
+ * A Activity chega por função, e não por referência guardada: o canal vive
+ * enquanto o `FlutterEngine` viver, e segurar a Activity aqui a manteria viva
+ * depois de destruída. Quem resolve a referência é a `MainActivity`
+ * (`MainActivity → PrinterChannel → ElginThermalPrinter → Termica`).
  */
 class PrinterChannel(
-    private val printer: ThermalPrinter = ElginThermalPrinter(),
+    activityProvider: () -> Activity? = { null },
+    private val printer: ThermalPrinter = ElginThermalPrinter(activityProvider),
 ) {
 
     private val worker = Executors.newSingleThreadExecutor()
@@ -43,7 +50,9 @@ class PrinterChannel(
                 mapOf(
                     "available" to state.available,
                     "out_of_paper" to state.outOfPaper,
+                    "cover_open" to state.coverOpen,
                     "detail" to state.detail,
+                    "raw_status" to state.rawStatus,
                 )
             }
 
@@ -58,6 +67,22 @@ class PrinterChannel(
 
             "feed" -> runOnWorker(result) {
                 printer.feed(call.argument<Int>("lines") ?: DEFAULT_FEED_LINES)
+                null
+            }
+
+            "cut" -> runOnWorker(result) {
+                printer.cut(call.argument<Int>("advance") ?: DEFAULT_CUT_ADVANCE)
+                null
+            }
+
+            "reset" -> runOnWorker(result) {
+                printer.reset()
+                null
+            }
+
+            // O POC usa isto para provar a reabertura da impressora após erro.
+            "disconnect" -> runOnWorker(result) {
+                printer.disconnect()
                 null
             }
 
@@ -93,5 +118,6 @@ class PrinterChannel(
     private companion object {
         const val CHANNEL_NAME = "br.com.casadasbicicletas.vendas/printer"
         const val DEFAULT_FEED_LINES = 3
+        const val DEFAULT_CUT_ADVANCE = 3
     }
 }

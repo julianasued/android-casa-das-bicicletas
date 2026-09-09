@@ -17,22 +17,28 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Leitor de código de barras integrado do M10 Pro.
+ * Leitor de código de barras integrado do M10.
  *
- * O leitor do terminal opera em um de dois modos, definidos na configuração do
- * próprio aparelho:
+ * ## Situação: API oficial do M10 NÃO identificada
  *
- *  - **broadcast** — o serviço de scanner publica um `Intent` com o código
- *    lido. É o modo que este canal escuta.
- *  - **teclado (HID)** — o código chega como digitação, sem passar por
- *    `Intent` nenhum. Esse caso é tratado no lado Flutter
- *    (`keyboard_wedge.dart`), porque ali é onde os eventos de tecla chegam.
+ * A documentação da Elgin (`elgindevelopercommunity.github.io`) publica um
+ * módulo "Scanner", mas ele está sob **Android › SmartPOS**, e descreve a API
+ * `com.elgin.e1.Scanner.Scanner.getScanner(Context)`, que devolve um `Intent`
+ * consumido por `startActivityForResult` e lido em `onActivityResult` pelo
+ * extra `result`. Sob "Linha PosGo e M10" o único submódulo publicado é o da
+ * impressora. **Não existe API de scanner documentada para o M10**, e supor que
+ * a do SmartPOS vale aqui seria exatamente o tipo de suposição que este projeto
+ * não pode fazer.
  *
- * As ações e as chaves de `extra` variam conforme o firmware e a configuração
- * do serviço de scanner. Em vez de fixar uma, o canal escuta um conjunto de
- * candidatas e aceita a primeira chave de `extra` que trouxer texto — e o Dart
- * pode substituir a lista em tempo de execução por `configure`, sem nova versão
- * do aplicativo.
+ * Enquanto isso não for resolvido no aparelho físico, o canal escuta broadcasts
+ * por um conjunto de ações **candidatas, não oficiais** — declaradas como tal em
+ * [UNVERIFIED_ACTIONS] — e permite trocá-las em tempo de execução por
+ * `configure`, sem nova versão do aplicativo. O método `probe` reúne o que o
+ * aparelho responde, para que a resposta venha de teste e não de chute.
+ *
+ * O leitor também pode estar configurado em **modo teclado (HID)**: aí o código
+ * chega como digitação, sem `Intent` nenhum, e quem trata é o lado Flutter
+ * (`keyboard_wedge.dart`).
  */
 class ScannerChannel(private val context: Context) : EventChannel.StreamHandler {
 
@@ -43,8 +49,8 @@ class ScannerChannel(private val context: Context) : EventChannel.StreamHandler 
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var actions: List<String> = DEFAULT_ACTIONS
-    private var extraKeys: List<String> = DEFAULT_EXTRA_KEYS
+    private var actions: List<String> = UNVERIFIED_ACTIONS
+    private var extraKeys: List<String> = UNVERIFIED_EXTRA_KEYS
 
     fun attach(messenger: BinaryMessenger) {
         methodChannel = MethodChannel(messenger, METHOD_CHANNEL).also {
@@ -81,6 +87,9 @@ class ScannerChannel(private val context: Context) : EventChannel.StreamHandler 
             }
 
             "isAvailable" -> result.success(isScannerServiceAvailable())
+
+            // Levanta, no aparelho, o que a documentação não responde.
+            "probe" -> result.success(probe())
 
             "configure" -> {
                 call.argument<List<String>>("actions")
@@ -186,6 +195,40 @@ class ScannerChannel(private val context: Context) : EventChannel.StreamHandler 
         }
     }
 
+    /**
+     * Diagnóstico do leitor, para o POC responder com fato o que a documentação
+     * deixa em aberto.
+     *
+     * Informa quais ações estão sendo escutadas, se algum pacote candidato de
+     * serviço de scanner existe e se a classe do scanner **do SmartPOS** está
+     * presente no aparelho. A última é a pergunta que decide o caminho: se ela
+     * existir no M10, vale testar a API documentada; se não, o caminho é
+     * broadcast ou modo teclado.
+     */
+    private fun probe(): Map<String, Any?> {
+        val packageManager = context.packageManager
+
+        val installedPackages = SCANNER_PACKAGES.filter { name ->
+            runCatching { packageManager.getPackageInfo(name, 0) }.isSuccess
+        }
+        val smartPosClassPresent =
+            runCatching { Class.forName(SMARTPOS_SCANNER_CLASS) }.isSuccess
+
+        return mapOf(
+            "listening" to (receiver != null),
+            "actions" to actions,
+            "extra_keys" to extraKeys,
+            "scanner_packages_found" to installedPackages,
+            "smartpos_scanner_class_present" to smartPosClassPresent,
+            "smartpos_scanner_class" to SMARTPOS_SCANNER_CLASS,
+            // A documentação oficial não publica API de scanner para o M10.
+            "official_m10_api" to false,
+            "detail" to "Ações escutadas são candidatas, não oficiais. " +
+                "Confirme a ação real em Configurações → Scanner do M10 e " +
+                "aplique-a por configure().",
+        )
+    }
+
     private fun nowIso(): String {
         val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
         format.timeZone = TimeZone.getTimeZone("UTC")
@@ -197,20 +240,27 @@ class ScannerChannel(private val context: Context) : EventChannel.StreamHandler 
         const val EVENT_CHANNEL = "br.com.casadasbicicletas.vendas/scanner/reads"
 
         /**
-         * Ações candidatas do broadcast de leitura.
+         * Ações candidatas do broadcast de leitura — **nenhuma confirmada** para
+         * o M10 na documentação oficial.
          *
-         * Confirme a do terminal em campo (Configurações → Scanner) e, se for
-         * outra, mande-a pelo `configure` em vez de alterar esta lista.
+         * Vieram de padrões comuns do mercado, não da Elgin. Confirme a do
+         * terminal em campo (Configurações → Scanner) e mande-a por `configure`
+         * em vez de alterar esta lista.
          */
-        val DEFAULT_ACTIONS = listOf(
+        val UNVERIFIED_ACTIONS = listOf(
             "com.elgin.scanner.ACTION_BARCODE",
             "com.elgin.e1.scanner.SCAN_RESULT",
             "android.intent.ACTION_DECODE_DATA",
             "scan.rcv.message",
         )
 
-        /** Chaves de `extra` usadas pelos firmwares mais comuns. */
-        val DEFAULT_EXTRA_KEYS = listOf(
+        /**
+         * Chaves de `extra` candidatas — também **não confirmadas** para o M10.
+         *
+         * `result` é a única documentada pela Elgin, e para o SmartPOS.
+         */
+        val UNVERIFIED_EXTRA_KEYS = listOf(
+            "result",
             "barcode",
             "barcode_string",
             "data",
@@ -221,10 +271,18 @@ class ScannerChannel(private val context: Context) : EventChannel.StreamHandler 
 
         val SYMBOLOGY_KEYS = listOf("symbology", "barcode_type", "SCAN_BARCODE_TYPE")
 
-        /** Pacotes de serviço de scanner conhecidos nos terminais Elgin. */
+        /** Pacotes candidatos de serviço de scanner — não confirmados. */
         val SCANNER_PACKAGES = listOf(
             "com.elgin.scanner",
             "com.elgin.e1.scanner",
         )
+
+        /**
+         * Classe do scanner **documentada para o SmartPOS**.
+         *
+         * Consultada apenas para saber se ela existe neste aparelho; nada é
+         * chamado a partir dela enquanto não se confirmar que vale no M10.
+         */
+        const val SMARTPOS_SCANNER_CLASS = "com.elgin.e1.Scanner.Scanner"
     }
 }

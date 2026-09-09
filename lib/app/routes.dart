@@ -17,4 +17,7 @@ class AppRoutes {
   static const String saleFinished = '/venda/concluida';
   static const String scanner = '/leitor';
   static const String printerDiagnostics = '/impressora';
+
+  /// Prova de integração com o hardware do M10, fora do fluxo de venda.
+  static const String m10Poc = '/m10';
 }

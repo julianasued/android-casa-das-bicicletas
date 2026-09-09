@@ -40,11 +40,18 @@ class DocumentLayout {
         PrintText('Terminal: $terminalName'),
         PrintText('Em: ${formatDateTime(DateTime.now())}'),
         PrintText(_divider()),
-        const PrintText('Codigo de barras de exemplo:', align: PrintAlign.center),
-        const PrintBarcode('SALE-L0-00000000'),
+        const PrintText('Negrito', bold: true),
+        const PrintText('Sublinhado', underline: true),
+        const PrintText('Altura dupla', doubleHeight: true),
+        const PrintText('Largura dupla', doubleWidth: true),
         PrintText(_divider()),
-        const PrintText('Se este papel saiu inteiro e o', align: PrintAlign.center),
-        const PrintText('codigo acima e legivel, a', align: PrintAlign.center),
+        const PrintText('CODE 128:', align: PrintAlign.center),
+        const PrintBarcode('SALE-L0-00000000'),
+        const PrintText('QR Code:', align: PrintAlign.center),
+        const PrintQrCode('CASA-DAS-BICICLETAS-TESTE'),
+        PrintText(_divider()),
+        const PrintText('Se este papel saiu inteiro e os', align: PrintAlign.center),
+        const PrintText('codigos acima sao legiveis, a', align: PrintAlign.center),
         const PrintText('impressora esta operacional.', align: PrintAlign.center),
         const PrintFeed(2),
         const PrintCut(),
@@ -240,8 +247,12 @@ String renderCommandsAsText(List<PrintCommand> commands, {int columns = paperCol
           PrintAlign.center => _centered(value, columns),
           PrintAlign.right => value.padLeft(columns),
         });
-      case PrintBarcode(:final data):
-        buffer.writeln(_centered('[$data]', columns));
+      case PrintBarcode(:final data, :final symbology):
+        buffer.writeln(_centered('[${symbology.code}: $data]', columns));
+      case PrintQrCode(:final data):
+        buffer.writeln(_centered('[QR: $data]', columns));
+      case PrintImage(:final path):
+        buffer.writeln(_centered('[IMG: $path]', columns));
       case PrintFeed(:final lines):
         buffer.write('\n' * lines);
       case PrintCut():

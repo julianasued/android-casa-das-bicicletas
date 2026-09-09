@@ -1,26 +1,42 @@
 import '../../core/result.dart';
 import '../entities/printed_document.dart';
 
-/// Estado da impressora térmica (§4 e §11 da integração com o M10 Pro).
+/// Estado da impressora térmica (§4 e §11 da integração com o M10).
+///
+/// `StatusImpressora` do SDK é consultado por assunto — gaveta, tampa, papel,
+/// ejetor, geral — e a documentação da Elgin publica o significado do
+/// **parâmetro**, não o dos valores devolvidos. Por isso [rawStatus] existe: o
+/// número cru chega até a tela do POC para ser mapeado no aparelho físico, em
+/// vez de ser adivinhado aqui.
 class PrinterStatus {
   const PrinterStatus({
     required this.available,
     required this.outOfPaper,
+    this.coverOpen = false,
     this.detail = '',
+    this.rawStatus = const <String, int>{},
   });
 
   const PrinterStatus.unavailable([this.detail = 'SDK da impressora não disponível'])
       : available = false,
-        outOfPaper = false;
+        outOfPaper = false,
+        coverOpen = false,
+        rawStatus = const <String, int>{};
 
   /// A impressora respondeu e está pronta para receber comandos.
   final bool available;
 
-  /// Falta de papel — quando o hardware sabe informar.
+  /// Falta de papel — só quando o mapeamento de status estiver confirmado.
   final bool outOfPaper;
+
+  /// Tampa aberta — idem.
+  final bool coverOpen;
 
   /// Texto do fabricante, útil no diagnóstico e no registro de erro.
   final String detail;
+
+  /// Retorno cru de `StatusImpressora` por assunto (`paper`, `cover`, ...).
+  final Map<String, int> rawStatus;
 
   bool get canPrint => available && !outOfPaper;
 }

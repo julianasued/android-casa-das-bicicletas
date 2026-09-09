@@ -12,6 +12,7 @@ A especificação completa está em [`docs/`](docs/):
 | `modelagem-banco/modelo_de_dados_v1.md` | Modelo de dados |
 | `integração-com-Elgin-M10-Pro.md` | Impressora térmica e leitor de código de barras |
 | `05-fluxo-offline/` | Fila local, idempotência e resolução de conflitos |
+| `checklist_teste_m10.md` | Roteiro do teste do POC no M10 físico |
 | `Arquitetura do Aplicativo Android-selection.png` | Camadas do aplicativo |
 
 ## Estado atual — Sprint 4 (Aplicativo M10)
@@ -85,6 +86,24 @@ arredondamento é o mesmo do backend (meia unidade para cima, fechando em
 centavos a cada etapa), e é isso que faz o total impresso no papel bater com o
 total gravado no Postgres, inclusive no rateio do desconto entre as linhas.
 
+### POC de integração com o M10
+
+A tela **Teste Elgin M10** (rota `/m10`, atalho no menu do terminal) é uma prova
+de hardware isolada do fluxo de venda: um botão por função, sem cliente, sem
+produto e sem servidor. Existe para responder no aparelho o que a documentação
+da Elgin deixa em aberto — o roteiro está em
+[`docs/checklist_teste_m10.md`](docs/checklist_teste_m10.md).
+
+O que a documentação oficial confirma e o que não confirma:
+
+| Assunto | Situação |
+|---|---|
+| Impressora térmica | API confirmada: `com.elgin.e1.Impressora.Termica`, conexão embarcada tipo `5`, `ImpressaoTexto`, `ImpressaoCodigoBarras`, `ImpressaoQRCode`, `ImprimeImagem`, `AvancaPapel`, `Corte`, `StatusImpressora` |
+| Retorno de `StatusImpressora` | **Não publicado.** O POC mostra o valor cru para o mapeamento ser feito no aparelho |
+| Inicialização | **Ambígua**: o exemplo oficial usa `setContext`, a lista de funções cita `setActivity`. Os dois são tentados |
+| Scanner | **Sem API para o M10.** A Elgin documenta scanner apenas para o SmartPOS (`com.elgin.e1.Scanner.Scanner`). As ações de broadcast usadas aqui são candidatas, trocáveis em tempo de execução |
+| Display do cliente | **Sem API publicada.** Existe a porta `CustomerDisplay` e um levantamento de telas secundárias via `DisplayManager`; escrever no display ainda não é possível |
+
 ### Integração com o M10 Pro
 
 Os canais nativos ficam em
@@ -94,13 +113,14 @@ Os canais nativos ficam em
 |---|---|
 | `PrinterChannel` | Impressora térmica integrada, fora da thread principal |
 | `ScannerChannel` | Leitor integrado, por broadcast do serviço de scanner |
+| `CustomerDisplayChannel` | Display do cliente — levantamento apenas, API pendente |
 | `SecureStoreChannel` | Token do terminal em `EncryptedSharedPreferences` |
 | `ConnectivityChannel` | Rede com saída validada, não apenas "tem Wi-Fi" |
 | `DeviceChannel` | Modelo e `ANDROID_ID`, sugestão de `X-Device-Id` |
 
-O **SDK E1 da Elgin** (`.aar`) não é versionado — é binário proprietário
-distribuído com o terminal. Veja [`android/app/libs/README.md`](android/app/libs/README.md)
-para instalá-lo. Sem ele o projeto compila e roda normalmente; a impressora
+Os **SDKs da Elgin** (`.aar`) não são versionados — são binários proprietários
+distribuídos com o terminal. Veja [`android/app/libs/README.md`](android/app/libs/README.md)
+para os nomes exatos dos arquivos e como instalá-los. Sem ele o projeto compila e roda normalmente; a impressora
 responde `PRINTER_UNAVAILABLE`, que é o caso previsto no §11 da especificação de
 integração.
 

@@ -105,6 +105,47 @@ class ScannerChannel implements BarcodeScanner {
     }
   }
 
+  /// Diagnóstico do leitor, para o POC responder com fato o que a documentação
+  /// deixa em aberto.
+  ///
+  /// A Elgin publica módulo de scanner apenas para o **SmartPOS**
+  /// (`com.elgin.e1.Scanner.Scanner`); para o M10 não há API documentada. Este
+  /// levantamento diz quais ações estão sendo escutadas, se algum pacote
+  /// candidato de serviço existe no aparelho e se a classe do SmartPOS está
+  /// presente — que é o dado que decide o caminho da integração.
+  Future<Map<String, Object?>> probe() async {
+    try {
+      final raw = await _methods.invokeMapMethod<String, Object?>('probe');
+      return raw ?? const <String, Object?>{};
+    } on PlatformException catch (error) {
+      return <String, Object?>{'error': error.message};
+    } on MissingPluginException {
+      return const <String, Object?>{
+        'error': 'Canal do leitor indisponível neste aparelho.',
+      };
+    }
+  }
+
+  /// Troca as ações de broadcast escutadas, sem nova versão do aplicativo.
+  ///
+  /// Existe porque a ação real do M10 não está documentada: descoberta no
+  /// aparelho, ela é aplicada aqui.
+  Future<void> configure({
+    List<String>? actions,
+    List<String>? extraKeys,
+  }) async {
+    try {
+      await _methods.invokeMethod<void>('configure', {
+        if (actions != null) 'actions': actions,
+        if (extraKeys != null) 'extra_keys': extraKeys,
+      });
+    } on PlatformException {
+      // Configuração recusada não derruba a tela: as ações anteriores seguem.
+    } on MissingPluginException {
+      // Fora do terminal não há o que configurar.
+    }
+  }
+
   @override
   Future<bool> isAvailable() async {
     try {

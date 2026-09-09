@@ -7,6 +7,7 @@ import '../domain/entities/seller.dart';
 import '../domain/usecases/create_sale.dart';
 import '../presentation/bootstrap/bootstrap_page.dart';
 import '../presentation/home/home_page.dart';
+import '../presentation/m10_poc/m10_poc_page.dart';
 import '../presentation/printer/printer_page.dart';
 import '../presentation/sale/new_sale_page.dart';
 import '../presentation/sale/sale_finished_page.dart';
@@ -56,6 +57,7 @@ class CasaDasBicicletasApp extends StatelessWidget {
         SaleFinishedPage(finished: settings.arguments! as SaleFinished),
       AppRoutes.scanner => const ScannerPage(),
       AppRoutes.printerDiagnostics => const PrinterDiagnosticsPage(),
+      AppRoutes.m10Poc => const M10PocPage(),
       _ => null,
     };
 

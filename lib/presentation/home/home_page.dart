@@ -60,6 +60,12 @@ class HomePage extends StatelessWidget {
                   onTap: () =>
                       Navigator.of(context).pushNamed(AppRoutes.printerDiagnostics),
                 ),
+                _ActionCard(
+                  icon: Icons.memory,
+                  title: 'Teste Elgin M10',
+                  subtitle: 'Prova de integração com impressora, leitor e display',
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.m10Poc),
+                ),
               ],
             ),
           ),

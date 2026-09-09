@@ -6,12 +6,10 @@
 /// de quem roda `flutter test`.
 library;
 
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:casa_das_bicicletas/app/dependencies.dart';
 import 'package:casa_das_bicicletas/core/env.dart';
-import 'package:casa_das_bicicletas/core/result.dart';
 import 'package:casa_das_bicicletas/data/remote/api_client.dart';
 import 'package:casa_das_bicicletas/data/remote/http_transport.dart';
 import 'package:casa_das_bicicletas/data/repositories/auth_repository_impl.dart';
@@ -20,11 +18,11 @@ import 'package:casa_das_bicicletas/data/repositories/customer_repository_impl.d
 import 'package:casa_das_bicicletas/data/repositories/sale_repository_impl.dart';
 import 'package:casa_das_bicicletas/data/session/secure_store.dart';
 import 'package:casa_das_bicicletas/data/session/session_manager.dart';
-import 'package:casa_das_bicicletas/domain/entities/barcode_read.dart';
-import 'package:casa_das_bicicletas/domain/ports/barcode_scanner.dart';
+import 'package:casa_das_bicicletas/domain/ports/customer_display.dart';
 import 'package:casa_das_bicicletas/platform/connectivity/connectivity_channel.dart';
 import 'package:casa_das_bicicletas/platform/device/device_channel.dart';
 import 'package:casa_das_bicicletas/platform/printer/printer_channel.dart';
+import 'package:casa_das_bicicletas/platform/scanner/fake_barcode_scanner.dart';
 
 /// Resposta canned para um par método/caminho.
 typedef TransportHandler = HttpResponse Function(HttpRequest request);
@@ -77,42 +75,12 @@ HttpResponse errorResponse({
       statusCode: statusCode,
     );
 
-/// Leitor de mentira: o teste dispara as leituras que quiser.
-class FakeBarcodeScanner implements BarcodeScanner {
-  final StreamController<BarcodeRead> _controller =
-      StreamController<BarcodeRead>.broadcast();
-
-  bool started = false;
-  bool available = true;
-
-  void emit(BarcodeRead read) => _controller.add(read);
-
-  @override
-  Stream<BarcodeRead> get reads => _controller.stream;
-
-  @override
-  Future<Result<void>> start() async {
-    started = true;
-    return const Ok(null);
-  }
-
-  @override
-  Future<Result<void>> stop() async {
-    started = false;
-    return const Ok(null);
-  }
-
-  @override
-  Future<bool> isAvailable() async => available;
-
-  Future<void> dispose() => _controller.close();
-}
-
 /// Grafo de dependências para os testes, com rede e hardware substituídos.
 AppDependencies buildTestDependencies({
   RecordingTransport? transport,
   FakeDocumentPrinter? printer,
   FakeBarcodeScanner? scanner,
+  CustomerDisplay? customerDisplay,
   SecureStore? secureStore,
   String baseUrl = 'https://api.teste.local/api/v1/',
 }) {
@@ -127,6 +95,10 @@ AppDependencies buildTestDependencies({
   final http = transport ?? RecordingTransport.empty();
   final api = ApiClient(environment: environment, session: session, transport: http);
 
+  // Uma instância só: `FakeDocumentPrinter` atende os dois contratos, como a
+  // `PrinterChannel` de verdade.
+  final fakePrinter = printer ?? FakeDocumentPrinter();
+
   return AppDependencies(
     environment: environment,
     secureStore: store,
@@ -137,8 +109,10 @@ AppDependencies buildTestDependencies({
     catalog: CatalogRepositoryImpl(api),
     customers: CustomerRepositoryImpl(api),
     sales: SaleRepositoryImpl(api),
-    printer: printer ?? FakeDocumentPrinter(),
+    printer: fakePrinter,
+    printerDiagnostics: fakePrinter,
     scanner: scanner ?? FakeBarcodeScanner(),
+    customerDisplay: customerDisplay ?? FakeCustomerDisplay(),
     connectivity: ConnectivityChannel(),
     device: const DeviceChannel(),
   );

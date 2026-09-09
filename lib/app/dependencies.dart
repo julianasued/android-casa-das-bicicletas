@@ -19,6 +19,7 @@ import '../data/repositories/sale_repository_impl.dart';
 import '../data/session/secure_store.dart';
 import '../data/session/session_manager.dart';
 import '../domain/ports/barcode_scanner.dart';
+import '../domain/ports/customer_display.dart';
 import '../domain/ports/document_printer.dart';
 import '../domain/repositories/auth_repository.dart';
 import '../domain/repositories/catalog_repository.dart';
@@ -31,7 +32,9 @@ import '../domain/usecases/reprint_document.dart';
 import '../domain/usecases/select_seller.dart';
 import '../platform/connectivity/connectivity_channel.dart';
 import '../platform/device/device_channel.dart';
+import '../platform/display/customer_display_channel.dart';
 import '../platform/printer/printer_channel.dart';
+import '../platform/printer/printer_diagnostics.dart';
 import '../platform/scanner/scanner_channel.dart';
 import '../platform/secure_store/secure_store_channel.dart';
 
@@ -47,7 +50,9 @@ class AppDependencies {
     required this.customers,
     required this.sales,
     required this.printer,
+    required this.printerDiagnostics,
     required this.scanner,
+    required this.customerDisplay,
     required this.connectivity,
     required this.device,
   })  : openTerminal = OpenTerminal(auth),
@@ -64,6 +69,10 @@ class AppDependencies {
     final transport = IoHttpTransport(timeout: env.requestTimeout);
     final api = ApiClient(environment: env, session: session, transport: transport);
 
+    // Uma instância só da impressora: é um aparelho só, e duas conexões
+    // concorrentes ao mesmo SDK é problema que não precisa existir.
+    final printer = PrinterChannel();
+
     return AppDependencies(
       environment: env,
       secureStore: secureStore,
@@ -74,8 +83,10 @@ class AppDependencies {
       catalog: CatalogRepositoryImpl(api),
       customers: CustomerRepositoryImpl(api),
       sales: SaleRepositoryImpl(api),
-      printer: PrinterChannel(),
+      printer: printer,
+      printerDiagnostics: printer,
       scanner: ScannerChannel(),
+      customerDisplay: const M10CustomerDisplay(),
       connectivity: ConnectivityChannel(),
       device: const DeviceChannel(),
     );
@@ -93,7 +104,12 @@ class AppDependencies {
   final SaleRepository sales;
 
   final DocumentPrinter printer;
+
+  /// Mesma impressora, pelo contrato de diagnóstico — é o que a tela do POC usa.
+  final PrinterDiagnostics printerDiagnostics;
+
   final BarcodeScanner scanner;
+  final CustomerDisplay customerDisplay;
   final ConnectivityChannel connectivity;
   final DeviceChannel device;
 
