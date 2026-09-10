@@ -80,8 +80,11 @@ class ElginExecutor {
             // AARs. É diferente de "o aparelho recusou" e a tela precisa saber.
             is NoClassDefFoundError, is ClassNotFoundException -> error(
                 ElginError.SDK_MISSING,
-                "SDK da Elgin ausente neste build. Confira os AARs em " +
-                    "android/app/libs/.",
+                // O nome da classe vai junto: sem ele nao se distingue "faltou
+                // o AAR" de "o R8 comeu uma classe que so este caminho usa", e
+                // no aparelho do balcao nao ha logcat para consultar.
+                "SDK da Elgin ausente neste build (${error.message}). " +
+                    "Confira os AARs em android/app/libs/ e as regras do R8.",
                 null,
             )
 

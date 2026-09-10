@@ -17,3 +17,7 @@
 # e sem estas linhas o R8 aborta o release reclamando de classe ausente.
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
+
+# ZXing, usada pelo E1 para gerar codigo de barras e QR Code.
+-keep class com.google.zxing.** { *; }
+-dontwarn com.google.zxing.**
