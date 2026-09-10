@@ -80,14 +80,14 @@ máscara de bits **não se confirmou**: se valesse, a tampa aberta teria levado
 - [x] Texto sai legível
 - [x] Alinhamento: esquerda, centro e direita nas posições certas
 - [x] Negrito, sublinhado, altura dupla e largura dupla saem diferentes entre si
-- [ ] CODE 128 sai e é legível por um leitor  *(sai; falta passar o leitor)*
-- [ ] EAN-13 sai e é legível  *(sai; falta passar o leitor)*
-- [ ] EAN-8 sai e é legível  *(sai; falta passar o leitor)*
-- [ ] QR Code sai e é legível por um celular
-- [ ] Imagem de teste (moldura com "X") sai inteira, sem cortar nem inverter
+- [x] CODE 128 sai e é legível por um leitor  *(só desenhado como imagem)*
+- [ ] EAN-13 sai e é legível  *(sai pelo SDK; leitura irregular)*
+- [x] EAN-8 sai e é legível  *(pelo SDK, sem precisar de imagem)*
+- [x] QR Code sai e é legível por um celular
+- [x] Imagem de teste (moldura com "X") sai inteira, sem cortar nem inverter
 - [ ] Avançar papel move a bobina
 - [x] Cortar papel: **confirmar se o M10 tem guilhotina** ou se apenas avança
-- [ ] Sinal sonoro toca
+- [x] Sinal sonoro toca  *(não toca: o M10 não suporta)*
 - [ ] Sem papel: o erro aparece no painel com o código do SDK
 - [ ] Fechar e reabrir volta a imprimir sem reiniciar o aplicativo
 - [ ] Imprimir com o aplicativo voltando do background ainda funciona
@@ -146,6 +146,29 @@ Se chegar a esse ponto, o EAN-13 (95 módulos) é o mais legível, mas tem um
 custo: o caixa usa o mesmo leitor para produtos, e um EAN-13 de venda pode ser
 confundido com o código de uma bicicleta. Encurtar mantendo CODE 128 preserva
 a distinção e a leitura humana do código.
+
+#### Como cada símbolo ficou (10/09/2026)
+
+| Símbolo | Caminho | Situação |
+| ------- | ------- | -------- |
+| CODE 128 | **imagem** (`barcode_bitmap.dart`) | lê — é o do código de venda |
+| EAN-8 | SDK | lê |
+| EAN-13 | SDK | sai; leu numa tirada e falhou em outra |
+| QR Code | SDK | lê |
+| Imagem | SDK | sai inteira, sem cortar nem espelhar |
+
+O CODE 128 é o único que precisou sair do SDK. Desenhado por nós, o código de
+venda `SALE-L1-7F3A9C2B` lê; pelo SDK, impresso na mesma tirada de papel,
+continuou ilegível. Ver 5f66074 e fbda7d8.
+
+O EAN-13 fica como dúvida aberta: leu numa impressão e não em outra, e não foi
+investigado a fundo porque a venda não depende dele. Se um dia depender, o
+caminho é o mesmo do CODE 128.
+
+**O M10 não tem sinal sonoro.** `SinalSonoro` responde -401
+(`ERRO_FUNCAO_NAO_SUPORTADA`). Não é defeito e não adianta insistir: quem
+quiser avisar o operador por som terá de usar o áudio do Android, não a
+impressora.
 
 #### Duas medidas que ficam
 
