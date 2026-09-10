@@ -199,7 +199,15 @@ mexer no fim do documento precisa manter essa soma acima de 3.
 
 ## Scanner
 
-- [ ] **Iniciar** liga o leitor sem erro
+- [x] **Iniciar** liga o leitor sem erro
+
+**Só isto foi verificado (10/09/2026).** `Scanner.init` e `iniciaScanner`
+passam sem erro, o que já descarta Activity ausente e ouvinte não registrado —
+os dois modos de falha que o plugin trata. Nada abaixo foi testado: não se
+localizou o gatilho físico do aparelho, e sem disparo não há leitura para
+conferir. Fica para quem tiver o manual do M10 em mãos ou souber qual botão
+aciona o leitor.
+
 - [ ] Apertar o gatilho: o código aparece no painel
 - [ ] EAN-13 lido
 - [ ] EAN-8 lido
