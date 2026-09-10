@@ -6,6 +6,8 @@
 /// papel de 58 mm.
 library;
 
+import 'dart:typed_data';
+
 import 'package:casa_das_bicicletas/platform/printer/barcode_bitmap.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -49,7 +51,7 @@ void main() {
       final png = await code128Png('ABC123');
 
       // PNG guarda largura e altura em big-endian nos bytes 16..23.
-      final bytes = png.buffer.asByteData();
+      final bytes = ByteData.sublistView(png);
       expect(bytes.getUint32(16), code128Modules(6) * defaultModulePoints);
       expect(bytes.getUint32(20), defaultBarHeightDots);
     });
@@ -58,11 +60,11 @@ void main() {
       final estreito = await code128Png('ABC123', modulePoints: 1);
       final largo = await code128Png('ABC123', modulePoints: 3);
 
-      final larguraEstreita = estreito.buffer.asByteData().getUint32(16);
-      final larguraLarga = largo.buffer.asByteData().getUint32(16);
+      final larguraEstreita = ByteData.sublistView(estreito).getUint32(16);
+      final larguraLarga = ByteData.sublistView(largo).getUint32(16);
 
       expect(larguraLarga, larguraEstreita * 3);
-      expect(largo.buffer.asByteData().getUint32(20), defaultBarHeightDots);
+      expect(ByteData.sublistView(largo).getUint32(20), defaultBarHeightDots);
     });
 
     test('sai um PNG de verdade', () async {

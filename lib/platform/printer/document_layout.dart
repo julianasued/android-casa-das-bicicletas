@@ -253,6 +253,9 @@ String renderCommandsAsText(List<PrintCommand> commands, {int columns = paperCol
         buffer.writeln(_centered('[QR: $data]', columns));
       case PrintImage(:final path):
         buffer.writeln(_centered('[IMG: $path]', columns));
+      case PrintImageBytes(:final label):
+        // O que interessa na prévia é o dado que virou desenho, não o bitmap.
+        buffer.writeln(_centered('[${label ?? 'IMG'}]', columns));
       case PrintFeed(:final lines):
         buffer.write('\n' * lines);
       case PrintCut():

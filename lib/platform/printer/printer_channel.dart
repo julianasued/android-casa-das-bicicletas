@@ -18,6 +18,7 @@ import '../../core/failure.dart';
 import '../../core/result.dart';
 import '../../domain/entities/printed_document.dart';
 import '../../domain/ports/document_printer.dart';
+import 'barcode_bitmap.dart';
 import 'document_layout.dart';
 import 'print_command.dart';
 import 'printer_diagnostics.dart';
@@ -97,8 +98,55 @@ class PrinterChannel implements DocumentPrinter, PrinterDiagnostics {
   // ---------------------------------------------------------------------------
 
   @override
-  Future<Result<void>> sendCommands(List<PrintCommand> commands) =>
-      _call('print', {'commands': encodeCommands(commands)});
+  Future<Result<void>> sendCommands(List<PrintCommand> commands) async =>
+      _call('print', {'commands': encodeCommands(await _drawBarcodes(commands))});
+
+  /// Troca cada CODE 128 pelo bitmap que desenhamos.
+  ///
+  /// O SDK aceita o dado e devolve sucesso, mas no M10 quem dimensiona as
+  /// barras é o serviço NYX e o resultado não decodifica — conferido no
+  /// aparelho, onde o mesmo código saiu ilegível pelo SDK e legível como
+  /// imagem, na mesma tirada de papel.
+  ///
+  /// Acontece aqui, e não no [DocumentLayout], porque desenhar é assíncrono e o
+  /// layout é síncrono de propósito: é o que permite testar o documento inteiro
+  /// sem rasterizar nada.
+  ///
+  /// As outras simbologias seguem pelo SDK. O EAN-8 lê bem por lá, e o que não
+  /// se sabe se está quebrado não se conserta às cegas.
+  Future<List<PrintCommand>> _drawBarcodes(List<PrintCommand> commands) async {
+    final saida = <PrintCommand>[];
+
+    for (final command in commands) {
+      if (command is! PrintBarcode ||
+          command.symbology != BarcodeSymbology.code128) {
+        saida.add(command);
+        continue;
+      }
+
+      // Módulo maior lê com mais folga, mas o papel de 58mm tem 384 pontos: o
+      // código de venda de hoje, com 16 caracteres, só entra com 1 ponto por
+      // módulo. Pega o maior que couber em vez de fixar um número que quebra
+      // quando o formato do código mudar.
+      final modulo = [3, 2, 1].firstWhere(
+        (candidato) => code128Fits(command.data, modulePoints: candidato),
+        orElse: () => 1,
+      );
+
+      saida.add(
+        PrintImageBytes(
+          await code128Png(
+            command.data,
+            modulePoints: modulo,
+            barHeightDots: command.height,
+          ),
+          label: command.data,
+        ),
+      );
+    }
+
+    return saida;
+  }
 
   @override
   Future<Result<void>> feed({int lines = 3}) => _call('feed', {'lines': lines});

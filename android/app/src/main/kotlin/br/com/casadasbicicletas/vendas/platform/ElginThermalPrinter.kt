@@ -1,6 +1,8 @@
 package br.com.casadasbicicletas.vendas.platform
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Log
 import java.lang.reflect.Method
 
@@ -245,6 +247,34 @@ class ElginThermalPrinter(
                 invoke(sdk, Sdk.PRINT_IMAGE, arrayOf(String::class.java), command.path),
             )
 
+            is PrintCommand.ImageBytes -> {
+                val bitmap = BitmapFactory.decodeByteArray(
+                    command.bytes,
+                    0,
+                    command.bytes.size,
+                ) ?: throw PrinterException(
+                    PrinterException.PRINT_FAILED,
+                    "${Sdk.PRINT_IMAGE}: bitmap não pôde ser decodificado.",
+                )
+
+                // `ImprimeImagem` tem sobrecarga para String e para Bitmap; a
+                // de Bitmap evita escrever um arquivo temporário só para
+                // apagar em seguida.
+                try {
+                    checked(
+                        Sdk.PRINT_IMAGE,
+                        invoke(
+                            sdk,
+                            Sdk.PRINT_IMAGE,
+                            arrayOf(Bitmap::class.java),
+                            bitmap,
+                        ),
+                    )
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+
             is PrintCommand.Feed -> checked(
                 Sdk.FEED,
                 invoke(sdk, Sdk.FEED, arrayOf(INT), command.lines),
@@ -416,7 +446,11 @@ class ElginThermalPrinter(
         parameterTypes: Array<Class<*>>,
         vararg arguments: Any?,
     ): Any? {
-        val method = methods.getOrPut(name) { sdk.getMethod(name, *parameterTypes) }
+        // A chave leva os tipos junto: `ImprimeImagem` tem sobrecarga para
+        // String e para Bitmap, e um cache só por nome devolveria a primeira
+        // que tivesse sido pedida.
+        val key = "$name(${parameterTypes.joinToString(",") { it.name }})"
+        val method = methods.getOrPut(key) { sdk.getMethod(name, *parameterTypes) }
         return method.invoke(null, *arguments)
     }
 

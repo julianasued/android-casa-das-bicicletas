@@ -143,6 +143,15 @@ sealed class PrintCommand {
     /** Caminho de arquivo, como `ImprimeImagem` espera. */
     data class Image(val path: String) : PrintCommand()
 
+    /**
+     * Imagem já decodificada, vinda pronta do Dart.
+     *
+     * É por aqui que o código de barras chega: no M10 quem dimensiona as
+     * barras é o serviço NYX, e o que sai de `ImpressaoCodigoBarras` não
+     * decodifica. O bitmap vem desenhado com módulo de tamanho inteiro.
+     */
+    class ImageBytes(val bytes: ByteArray) : PrintCommand()
+
     data class Feed(val lines: Int) : PrintCommand()
 
     data class Cut(val advance: Int) : PrintCommand()
@@ -176,6 +185,7 @@ sealed class PrintCommand {
             )
 
             "image" -> Image(path = raw["path"] as? String ?: "")
+            "image_bytes" -> (raw["bytes"] as? ByteArray)?.let(::ImageBytes)
             "feed" -> Feed((raw["lines"] as? Number)?.toInt() ?: 1)
             "cut" -> Cut((raw["advance"] as? Number)?.toInt() ?: DEFAULT_CUT_ADVANCE)
             else -> null

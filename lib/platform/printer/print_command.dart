@@ -11,6 +11,8 @@
 /// inteiros que o SDK espera ficam do lado Kotlin, em um lugar só.
 library;
 
+import 'dart:typed_data';
+
 enum PrintAlign { left, center, right }
 
 /// Simbologias que `ImpressaoCodigoBarras` aceita, pelos nomes da documentação.
@@ -148,6 +150,30 @@ class PrintImage extends PrintCommand {
 
   @override
   Map<String, Object?> toMap() => {'type': 'image', 'path': path};
+}
+
+/// Imagem já em memória, sem passar por arquivo.
+///
+/// É assim que o código de barras chega à impressora neste terminal. O E1
+/// aceita o dado e devolve sucesso, mas quem dimensiona as barras no M10 é o
+/// serviço NYX, e o que sai não decodifica — no aparelho, só até seis
+/// caracteres. Desenhado por nós, cada módulo ocupa um número inteiro de
+/// pontos e as proporções ficam exatas. Ver `barcode_bitmap.dart`.
+///
+/// Sem arquivo temporário de propósito: o bitmap nasce, imprime e morre no
+/// mesmo caminho, e arquivo a mais no terminal é coisa a mais para sobrar
+/// quando a impressão falha no meio.
+class PrintImageBytes extends PrintCommand {
+  const PrintImageBytes(this.bytes, {this.label});
+
+  final Uint8List bytes;
+
+  /// O que a imagem representa, para quem lê um teste ou um log. Nunca vai
+  /// para o papel.
+  final String? label;
+
+  @override
+  Map<String, Object?> toMap() => {'type': 'image_bytes', 'bytes': bytes};
 }
 
 class PrintFeed extends PrintCommand {
