@@ -188,6 +188,45 @@ mexer no fim do documento precisa manter essa soma acima de 3.
 
 ## Display do cliente
 
+**NÃO FUNCIONA no aparelho testado (10/09/2026), e a causa mais provável é o
+terminal não ter o serviço.** O display físico existe, mas `AbreConexaoDisplay`
+nunca abre.
+
+O que o log da própria E1 mostra, lido de dentro do aplicativo (um app lê o seu
+próprio logcat sem permissão especial — foi o que destravou o diagnóstico):
+
+```
+Valor de Activity display ...MainActivity@a9954b7   <- a Activity chega
+Modelo: M11
+Entrando na Função: AbreConexao
+E/CONM11: Falha ao solicitar o vínculo com o serviço da impressora.
+Retorno AbreConexao: -173
+```
+
+Descartado pelo caminho, cada um com teste próprio:
+
+| Suspeita | Como caiu |
+| -------- | --------- |
+| Dispositivo errado no enum | os cinco falham; `AUTO` resolve para `M10_PRO` |
+| Conflito com a impressora | resultado idêntico com ela aberta e fechada |
+| Permissão de armazenamento | concedida à mão, mesmo erro |
+| Activity nula | o log mostra a Activity presente |
+| Visibilidade de pacote (Android 11+) | `<queries>` declarado; bind continua falhando |
+
+**Cuidado com o -173:** o `ConM11.abrir` devolve esse mesmo código para "Activity
+nula" **e** para falha de bind. Ler só o primeiro `ireturn` do bytecode leva
+para o lado errado — foi o que aconteceu aqui, e custou três APKs de
+diagnóstico. Só o log separa os dois.
+
+O que sobra verificar, para quem retomar: se o pacote `net.nyx.printerservice`
+está instalado no terminal (`pm list packages | grep nyx`) e se algum serviço
+responde à action `net.nyx.printerservice.IPrinterService`. Se não estiver, não
+há o que corrigir do lado do aplicativo — é firmware ou modelo sem o recurso.
+
+Nada disto bloqueia a venda: o display é comodidade para o cliente ver o valor,
+e o operador não perde nenhuma função sem ele.
+
+
 - [ ] **Enviar** abre o display e escreve — funciona com `M10_PRO`?
 - [ ] Se falhar, **anotar** a mensagem: "Serviço M11 indisponível" aponta para o
       bind AIDL, outro erro aponta para outra coisa
