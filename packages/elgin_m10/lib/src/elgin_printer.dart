@@ -22,7 +22,7 @@ enum BarcodeType {
   itf(5, 'ITF (quantidade par de dígitos)'),
   codebar(6, 'CODEBAR'),
   code93(7, 'CODE 93'),
-  code128(8, 'CODE 128');
+  code128(8, 'CODE 128 (seletor {A, {B ou {C no início)');
 
   const BarcodeType(this.sdkValue, this.label);
 
@@ -176,11 +176,31 @@ class ElginPrinter {
   }) =>
       invokeElgin<void>(_channel, 'printer.printBarcode', {
         'type': type.sdkValue,
-        'data': data,
+        'data': _comSeletorDeConjunto(data, type),
         'height': height,
         'width': width,
         'hri': hri.sdkValue,
       });
+
+  /// Põe o seletor de conjunto que o CODE 128 exige.
+  ///
+  /// A tabela do parâmetro `tipo` da Elgin manda, para o CODE 128, primeiro
+  /// caractere `{` e segundo `A`, `B` ou `C`. Sem isso o SDK devolve -65
+  /// (`CB_DADOS_INVALIDOS`) até para dados triviais — conferido no M10 Pro em
+  /// 09/2026, onde `SALE-L1-7F3A9C2B`, `12345678` e `ABC123` foram todos
+  /// recusados.
+  ///
+  /// O conjunto B cobre o ASCII imprimível, que é o caso do código de venda.
+  /// Quem já mandar um seletor válido fica com o que escolheu — só as demais
+  /// simbologias passam intactas.
+  static String _comSeletorDeConjunto(String data, BarcodeType type) {
+    if (type != BarcodeType.code128) return data;
+
+    final jaTemSeletor =
+        data.length >= 2 && data[0] == '{' && 'ABC'.contains(data[1]);
+
+    return jaTemSeletor ? data : '{B$data';
+  }
 
   /// `tamanho` vai de 1 a 6; `correction` de 0 a 4 conforme a versão do SDK.
   static Future<void> printQrCode(

@@ -106,6 +106,33 @@ void main() {
       expect(calls.last.arguments['type'], 8);
     });
 
+    test('CODE 128 ganha o seletor de conjunto que o SDK exige', () async {
+      // Sem o `{B` o SDK devolve -65 até para dados triviais (M10 Pro, 09/2026).
+      await ElginPrinter.printBarcode('SALE-L1-7F3A9C2B', type: BarcodeType.code128);
+      expect(calls.last.arguments['data'], '{BSALE-L1-7F3A9C2B');
+
+      await ElginPrinter.printBarcode('12345678', type: BarcodeType.code128);
+      expect(calls.last.arguments['data'], '{B12345678');
+    });
+
+    test('seletor já escolhido por quem chama é preservado', () async {
+      await ElginPrinter.printBarcode('{C123456', type: BarcodeType.code128);
+      expect(calls.last.arguments['data'], '{C123456');
+
+      // `{` sem conjunto válido logo depois não conta como seletor.
+      await ElginPrinter.printBarcode('{X99', type: BarcodeType.code128);
+      expect(calls.last.arguments['data'], '{B{X99');
+    });
+
+    test('as outras simbologias passam intactas', () async {
+      // EAN-13 aceita 12 ou 13 dígitos; nada de seletor aqui.
+      await ElginPrinter.printBarcode('789123456789', type: BarcodeType.ean13);
+      expect(calls.last.arguments['data'], '789123456789');
+
+      await ElginPrinter.printBarcode('7891234', type: BarcodeType.ean8);
+      expect(calls.last.arguments['data'], '7891234');
+    });
+
     test('HRI abaixo é o padrão', () async {
       await ElginPrinter.printBarcode('X', type: BarcodeType.code128);
       expect(calls.last.arguments['hri'], 2);
