@@ -112,6 +112,41 @@ Cada um escondia o seguinte, e nenhum apareceria sem o aparelho na mão:
 
 Ver 6afc4cd, d9c434c e 8d6ccd3.
 
+#### Códigos de barras: legibilidade em aberto (10/09/2026)
+
+Os três saem no papel, mas **só o EAN-8 decodifica de forma confiável**. O
+CODE 128 do código de venda (`SALE-L1-7F3A9C2B`) não foi lido nem por câmera
+de celular nem isolado num cupom só.
+
+Limite medido, imprimindo CODE 128 de comprimentos decrescentes e lendo cada
+um: `ABC123` (6 caracteres, 101 módulos) lê; `7F3A9C2B` (8 caracteres, 123
+módulos) já não. Para referência, o EAN-8 tem 67 módulos e o EAN-13, 95.
+
+**Isso é anormalmente baixo.** CODE 128 de 16 caracteres em papel de 58 mm é
+rotina no varejo. Um aparelho que só decodifica até 6 caracteres tem problema
+de impressão, não de formato do código — e o quadro fecha com o resto do que
+se observou: barras borradas, o mesmo código lendo numa impressão e falhando
+na seguinte.
+
+**A densidade não é ajustável por software neste aparelho.** `DefineDensidade`
+existe no AAR (não na documentação pública), aceita 1..4 e monta o `ESC 7` do
+ESC/POS. Mas o bytecode mostra que ela descarta o retorno de
+`Conexao.Escrever` e devolve 0 incondicionalmente: no M10 a impressão passa
+pelo serviço NYX, que ignora o comando cru. Os quatro níveis saíram idênticos
+no papel. Não vale expor no plugin.
+
+Antes de mexer no formato do código de venda — o que exigiria mudar o
+`identifiers.py` do backend junto, já que terminal e servidor calculam o mesmo
+código —, **eliminar as causas físicas**: bateria a 100% (bateria baixa imprime
+fraco), cabeça de impressão limpa com álcool isopropílico, e bobina de outro
+lote. Só se o limite não subir depois disso é que a conversa passa a ser sobre
+encurtar o formato ou trocar de simbologia.
+
+Se chegar a esse ponto, o EAN-13 (95 módulos) é o mais legível, mas tem um
+custo: o caixa usa o mesmo leitor para produtos, e um EAN-13 de venda pode ser
+confundido com o código de uma bicicleta. Encurtar mantendo CODE 128 preserva
+a distinção e a leitura humana do código.
+
 #### Duas medidas que ficam
 
 **Papel em branco não significa comando recusado.** A impressora é bufferizada
