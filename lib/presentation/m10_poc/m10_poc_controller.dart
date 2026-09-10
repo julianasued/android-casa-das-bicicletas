@@ -35,6 +35,11 @@ class M10PocController extends ChangeNotifier {
   ScanEvent? _lastRead;
   int _readCount = 0;
 
+  /// A lâmina fica três linhas acima da cabeça de impressão — medido no M10
+  /// Pro em 09/2026 com uma régua de 12 linhas, das quais sobraram 9. Cortar
+  /// sem avançar isto come o fim do cupom, que foi o que decepou o EAN-8.
+  static const int _avancoDoCorte = 3;
+
   bool _printerOpen = false;
   bool _displayOpen = false;
   bool _scannerRunning = false;
@@ -119,7 +124,7 @@ class M10PocController extends ChangeNotifier {
             size: PrinterSize.of(width: PrinterSize.width2x),
           );
           await ElginPrinter.feed(2);
-          await ElginPrinter.cut();
+          await ElginPrinter.cut(feed: _avancoDoCorte);
         });
       });
 
@@ -144,7 +149,7 @@ class M10PocController extends ChangeNotifier {
           await ElginPrinter.printText('EAN-8', align: PrinterAlign.center);
           await ElginPrinter.printBarcode('7891234', type: BarcodeType.ean8);
           await ElginPrinter.feed(2);
-          await ElginPrinter.cut();
+          await ElginPrinter.cut(feed: _avancoDoCorte);
         });
       });
 
@@ -155,7 +160,7 @@ class M10PocController extends ChangeNotifier {
             'https://casadasbicicletas.com.br/venda/TESTE',
           );
           await ElginPrinter.feed(2);
-          await ElginPrinter.cut();
+          await ElginPrinter.cut(feed: _avancoDoCorte);
         });
       });
 
@@ -163,7 +168,7 @@ class M10PocController extends ChangeNotifier {
         await _withPrinter(() async {
           await ElginPrinter.printImageFromBytes(testImageBytes());
           await ElginPrinter.feed(2);
-          await ElginPrinter.cut();
+          await ElginPrinter.cut(feed: _avancoDoCorte);
         });
       });
 
@@ -171,7 +176,7 @@ class M10PocController extends ChangeNotifier {
       _run('Avançar papel', () => _withPrinter(() => ElginPrinter.feed(3)));
 
   Future<void> cutPaper() =>
-      _run('Cortar papel', () => _withPrinter(() => ElginPrinter.cut()));
+      _run('Cortar papel', () => _withPrinter(() => ElginPrinter.cut(feed: _avancoDoCorte)));
 
   Future<void> checkPrinter() => _run('Consultar status', () async {
         await _withPrinter(() async {

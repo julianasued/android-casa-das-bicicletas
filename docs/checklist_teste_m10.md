@@ -80,37 +80,53 @@ máscara de bits **não se confirmou**: se valesse, a tampa aberta teria levado
 - [x] Texto sai legível
 - [x] Alinhamento: esquerda, centro e direita nas posições certas
 - [x] Negrito, sublinhado, altura dupla e largura dupla saem diferentes entre si
-- [ ] CODE 128 sai e é legível por um leitor
-
-**O que esta primeira impressão custou (09/09/2026).** O cupom só saiu depois
-de corrigir dois defeitos do plugin, os dois encontrados aqui:
-
-1. **Retorno positivo não é erro.** `ImpressaoTexto` devolveu `20` — os 19
-   caracteres de "CASA DAS BICICLETAS" mais a quebra de linha — e o
-   `checkElgin` reprovava qualquer valor diferente de zero. A impressão tinha
-   funcionado; o texto estava no buffer, e como a sequência abortava na
-   primeira linha, o `feed`/`cut` do fim nunca rodava e o papel parecia vazio.
-   Só valor **negativo** é erro, conforme a tabela `CodigoErro` do AAR e a
-   documentação da Elgin.
-2. **`CONEXAO_ATIVA` (-6) não é falha.** As classes da E1 são estáticas e a
-   conexão pertence ao processo, então ela sobrevive à tela que a abriu.
-   Depois de trocar de tela, reabrir devolvia -6 e a impressora ficava
-   inacessível.
-
-Fica o aviso para quem for depurar impressão neste aparelho: **papel em branco
-não significa que o comando falhou.** A impressora é bufferizada e só descarrega
-no avanço de papel — confirme com "Avançar papel" antes de concluir que nada
-foi impresso.
-- [ ] EAN-13 sai e é legível
-- [ ] EAN-8 sai e é legível
+- [ ] CODE 128 sai e é legível por um leitor  *(sai; falta passar o leitor)*
+- [ ] EAN-13 sai e é legível  *(sai; falta passar o leitor)*
+- [ ] EAN-8 sai e é legível  *(sai; falta passar o leitor)*
 - [ ] QR Code sai e é legível por um celular
 - [ ] Imagem de teste (moldura com "X") sai inteira, sem cortar nem inverter
 - [ ] Avançar papel move a bobina
-- [ ] Cortar papel: **confirmar se o M10 tem guilhotina** ou se apenas avança
+- [x] Cortar papel: **confirmar se o M10 tem guilhotina** ou se apenas avança
 - [ ] Sinal sonoro toca
 - [ ] Sem papel: o erro aparece no painel com o código do SDK
 - [ ] Fechar e reabrir volta a imprimir sem reiniciar o aplicativo
 - [ ] Imprimir com o aplicativo voltando do background ainda funciona
+
+#### Quatro defeitos entre o primeiro toque e o primeiro cupom (09/09/2026)
+
+Cada um escondia o seguinte, e nenhum apareceria sem o aparelho na mão:
+
+1. **Retorno positivo não é erro.** `ImpressaoTexto` devolveu `20` — os 19
+   caracteres de "CASA DAS BICICLETAS" mais a quebra de linha — e o
+   `checkElgin` reprovava qualquer valor diferente de zero. Só valor
+   **negativo** é erro, conforme a tabela `CodigoErro` do AAR e a documentação
+   da Elgin.
+2. **`CONEXAO_ATIVA` (-6) não é falha.** As classes da E1 são estáticas e a
+   conexão pertence ao processo, então sobrevive à tela que a abriu. Depois de
+   trocar de tela, reabrir devolvia -6 e a impressora ficava inacessível.
+3. **CODE 128 exige seletor de conjunto.** A tabela do parâmetro `tipo` manda
+   primeiro caractere `{` e segundo `A`/`B`/`C`. Sem isso o SDK devolve -65 até
+   para `12345678`.
+4. **A ZXing não estava no APK.** O E1 desenha códigos e QR Code com ela, mas o
+   AAR é local e entra por `fileTree`, que não carrega dependência transitiva.
+
+Ver 6afc4cd, d9c434c e 8d6ccd3.
+
+#### Duas medidas que ficam
+
+**Papel em branco não significa comando recusado.** A impressora é bufferizada
+e só descarrega no avanço de papel. Confirme com "Avançar papel" antes de
+concluir que nada foi impresso — foi o que revelou o defeito 1.
+
+**O vão da lâmina é de 3 linhas.** Medido com uma régua de 12 linhas impressas
+seguidas de corte sem avanço: sobraram 9. Cortar com menos de 3 linhas de
+avanço come o fim do cupom — foi o que decepou o EAN-8, com a POC avançando 2.
+
+Consequência para a notinha: `document_layout` termina com `PrintFeed(2)` +
+`PrintCut()` (avanço 3), somando 5 — folga de 2 sobre o necessário, e o último
+elemento antes do corte é texto. **O rodapé do cliente está seguro.** Quem
+mexer no fim do documento precisa manter essa soma acima de 3.
+
 
 ## Display do cliente
 
