@@ -145,6 +145,13 @@ void main() {
       expect(calls.last.arguments['hri'], 4);
     });
 
+    test('QR Code usa nivel de correcao valido por padrao', () async {
+      // O padrao era 0, que o SDK recusa com -52 (M10 Pro, 09/2026).
+      await ElginPrinter.printQrCode('https://exemplo');
+      expect(calls.last.arguments['correction'], 2);
+      expect(calls.last.arguments['size'], 4);
+    });
+
     test('cut distingue corte parcial de total', () async {
       await ElginPrinter.cut();
       expect(calls.last.arguments['full'], isFalse);

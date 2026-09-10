@@ -97,12 +97,23 @@ class PrinterHandler(private val executor: ElginExecutor) {
             }
 
             "printQrCode" -> executor.run(result, activity) {
+                val size = call.argument<Int>("size") ?: 4
+                val correction = call.argument<Int>("correction") ?: 2
+
+                // Fora da faixa o SDK responde -51 ou -52, que no balcao chega
+                // como "QR Code falhou" e nao diz qual dos dois parametros
+                // estava errado. Reprovar aqui nomeia o culpado.
+                require(size in 1..6) { "tamanho do QR Code vai de 1 a 6; recebeu $size." }
+                require(correction in 1..4) {
+                    "nivel de correcao do QR Code vai de 1 a 4; recebeu $correction."
+                }
+
                 checkElgin(
                     "ImpressaoQRCode",
                     Termica.ImpressaoQRCode(
                         call.argument<String>("data").orEmpty(),
-                        call.argument<Int>("size") ?: 4,
-                        call.argument<Int>("correction") ?: 0,
+                        size,
+                        correction,
                     ),
                 )
                 null

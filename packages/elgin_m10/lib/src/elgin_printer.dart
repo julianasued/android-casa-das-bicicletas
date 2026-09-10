@@ -202,11 +202,16 @@ class ElginPrinter {
     return jaTemSeletor ? data : '{B$data';
   }
 
-  /// `tamanho` vai de 1 a 6; `correction` de 0 a 4 conforme a versão do SDK.
+  /// `tamanho` vai de 1 a 6; `correction` de **1 a 4** — 7%, 15%, 25% e 30%
+  /// de redundância.
+  ///
+  /// O padrão era 0, que o SDK recusa com -52 (`NIVEL_DE_CORRECAO_INVALIDO`):
+  /// conferido no M10 Pro, onde nenhum QR Code chegava a sair. A faixa que vale
+  /// é a que `PrintQrCode` já afirmava do lado do aplicativo.
   static Future<void> printQrCode(
     String data, {
     int size = 4,
-    int correction = 0,
+    int correction = 2,
   }) =>
       invokeElgin<void>(_channel, 'printer.printQrCode', {
         'data': data,
