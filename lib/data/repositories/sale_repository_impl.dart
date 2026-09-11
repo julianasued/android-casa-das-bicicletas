@@ -19,15 +19,17 @@ import '../../domain/entities/printed_document.dart';
 import '../../domain/entities/sale.dart';
 import '../../domain/repositories/sale_repository.dart';
 import '../../domain/rules/sale_draft.dart';
+import '../local/reference_cache.dart';
 import '../remote/api_client.dart';
 import '../remote/api_endpoints.dart';
 import '../remote/mappers.dart';
 import '../remote/response_mapping.dart';
 
 class SaleRepositoryImpl implements SaleRepository {
-  const SaleRepositoryImpl(this._api);
+  const SaleRepositoryImpl(this._api, {ReferenceCache? cache}) : _cache = cache;
 
   final ApiClient _api;
+  final ReferenceCache? _cache;
 
   @override
   Future<Result<SaleWithDocument>> create(SaleDraft draft) async {
@@ -37,10 +39,20 @@ class SaleRepositoryImpl implements SaleRepository {
       idempotencyKey: draft.uuid,
     );
 
-    return mapApiResponse(
+    final resultado = await mapApiResponse(
       response,
       (result) => saleWithDocumentFromJson(result.data),
     );
+
+    // O cabeçalho da notinha — loja, CNPJ, endereço e nome do terminal — só
+    // chega aqui dentro. Guardar é o que vai ensinar o terminal a montar o
+    // documento sozinho quando a rede cair (Fase 2).
+    if (resultado case Ok(:final value)) {
+      if (value.document case final PrintedDocument documento) {
+        await _cache?.learnIdentity(documento);
+      }
+    }
+    return resultado;
   }
 
   Map<String, Object?> _bodyFor(SaleDraft draft) => {

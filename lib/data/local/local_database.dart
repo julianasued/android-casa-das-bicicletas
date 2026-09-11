@@ -25,7 +25,7 @@ class LocalDatabase {
   static const String fileName = 'casa_das_bicicletas.db';
 
   /// Sobe quando o esquema muda; cada degrau precisa de um `onUpgrade`.
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   final DatabaseFactory _factory;
   final String? _path;
@@ -51,12 +51,14 @@ class LocalDatabase {
           }
         },
         onUpgrade: (db, from, to) async {
-          // Fase 1 não tem versão anterior em campo. Quando tiver, cada degrau
-          // entra aqui — e apagar o banco não é migração: a fila de operações
-          // pendentes leva vendas que ainda não chegaram ao servidor.
-          throw UnsupportedError(
-            'Migração de $from para $to não implementada.',
-          );
+          // Apagar e recriar não é migração: a partir da Fase 2 este banco
+          // guarda vendas que ainda não chegaram ao servidor, e perdê-las é
+          // perder dinheiro que já saiu da loja.
+          for (var versao = from + 1; versao <= to; versao++) {
+            for (final comando in _migrations[versao] ?? const <String>[]) {
+              await db.execute(comando);
+            }
+          }
         },
       ),
     );
@@ -115,5 +117,32 @@ class LocalDatabase {
       cached_at TEXT    NOT NULL
     )
     ''',
+    _createTerminalIdentity,
   ];
+
+  /// Cada degrau de versão, para quem já tem o banco em campo.
+  ///
+  /// O `_schema` reaproveita estas listas: um banco novo nasce com tudo, e um
+  /// antigo recebe só o que falta — sem dois lugares para manter sincronizados.
+  static const Map<int, List<String>> _migrations = {
+    2: [_createTerminalIdentity],
+  };
+
+  /// Identidade do terminal: o que o documento precisa e o `SaleDraft` não tem.
+  ///
+  /// Linha única (`CHECK (id = 1)`) porque um aparelho é um terminal de uma
+  /// loja. `learned_at` registra quando foi aprendido: um endereço de loja de
+  /// seis meses atrás ainda serve para o papel, mas quem depura merece saber a
+  /// idade do dado.
+  static const String _createTerminalIdentity = '''
+    CREATE TABLE terminal_identity (
+      id             INTEGER PRIMARY KEY CHECK (id = 1),
+      store_code     TEXT,
+      store_name     TEXT,
+      store_document TEXT,
+      store_address  TEXT,
+      terminal_name  TEXT,
+      learned_at     TEXT NOT NULL
+    )
+  ''';
 }

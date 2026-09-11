@@ -12,6 +12,7 @@ import '../../domain/entities/seller.dart';
 import '../../domain/entities/store.dart';
 import '../../domain/entities/terminal_session.dart';
 import '../../domain/repositories/auth_repository.dart';
+import '../local/reference_cache.dart';
 import '../remote/api_client.dart';
 import '../remote/api_endpoints.dart';
 import '../remote/mappers.dart';
@@ -19,12 +20,20 @@ import '../remote/response_mapping.dart';
 import '../session/session_manager.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
-  AuthRepositoryImpl({required ApiClient api, required SessionManager session})
-      : _api = api,
-        _session = session;
+  AuthRepositoryImpl({
+    required ApiClient api,
+    required SessionManager session,
+    ReferenceCache? cache,
+  })  : _api = api,
+        _session = session,
+        _cache = cache;
 
   final ApiClient _api;
   final SessionManager _session;
+
+  /// Opcional: o repositório funciona sem cache, e é assim que os testes que só
+  /// olham o contrato REST seguem sem banco.
+  final ReferenceCache? _cache;
 
   /// Guardados da última listagem: a resposta da seleção (§2.3) devolve
   /// `seller_id`, e o nome que aparece no documento impresso vem daqui.
@@ -122,6 +131,9 @@ class AuthRepositoryImpl implements AuthRepository {
       final data = result.data;
       final store = storeFromJson(data);
       await _session.saveStoreCode(store.code);
+      // Guardar nome, CNPJ e endereço: é o cabeçalho da notinha, e sem isto o
+      // terminal não monta documento sozinho (Sprint 9, Fase 2).
+      await _cache?.learnStore(store);
       return store;
     });
   }
