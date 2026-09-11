@@ -1,6 +1,11 @@
-/// Clientes (API §3.3). Necessário para a venda em notinha (RF14).
+/// Clientes (API §3.3), com cache local de leitura (RF34, §13.9).
+///
+/// Necessário para a venda em notinha (RF14) — e é justamente a notinha que
+/// mais precisa de cache: ela exige cliente cadastrado, e sem rede não haveria
+/// como escolher um.
 library;
 
+import '../../core/failure.dart';
 import '../../core/result.dart';
 import '../../domain/entities/customer.dart';
 import '../../domain/entities/receivable.dart';
@@ -9,11 +14,14 @@ import '../remote/api_client.dart';
 import '../remote/api_endpoints.dart';
 import '../remote/mappers.dart';
 import '../remote/response_mapping.dart';
+import '../local/reference_cache.dart';
 
 class CustomerRepositoryImpl implements CustomerRepository {
-  const CustomerRepositoryImpl(this._api);
+  const CustomerRepositoryImpl(this._api, {ReferenceCache? cache})
+      : _cache = cache;
 
   final ApiClient _api;
+  final ReferenceCache? _cache;
 
   @override
   Future<Result<List<Customer>>> search({String query = ''}) async {
@@ -27,12 +35,25 @@ class CustomerRepositoryImpl implements CustomerRepository {
       },
     );
 
-    return mapApiResponse(
+    final resultado = await mapApiResponse(
       response,
       (result) => [
         for (final item in readResults(result.data)) customerFromJson(item),
       ],
     );
+
+    switch (resultado) {
+      case Ok(:final value):
+        await _cache?.saveCustomers(value);
+        return resultado;
+
+      case Err(failure: NetworkFailure()):
+        final local = await _cache?.searchCustomers(query: query);
+        return local == null || local.isEmpty ? resultado : Ok(local);
+
+      case Err():
+        return resultado;
+    }
   }
 
   @override
@@ -54,7 +75,16 @@ class CustomerRepositoryImpl implements CustomerRepository {
       idempotencyKey: ApiClient.newIdempotencyKey(),
     );
 
-    return mapApiResponse(response, (result) => customerFromJson(result.data));
+    final resultado =
+        await mapApiResponse(response, (result) => customerFromJson(result.data));
+
+    // Quem acabou de ser cadastrado é quem o vendedor vai usar na venda que
+    // está montando; deixá-lo fora do cache faria ele desaparecer se a rede
+    // caísse no minuto seguinte.
+    if (resultado case Ok(:final value)) {
+      await _cache?.saveCustomers([value]);
+    }
+    return resultado;
   }
 
   @override

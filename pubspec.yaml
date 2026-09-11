@@ -16,11 +16,14 @@ dependencies:
   elgin_m10:
     path: packages/elgin_m10
   barcode: ^2.2.9
+  sqflite: ^2.4.4
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  sqflite_common_ffi: ^2.4.3
 
 flutter:
   uses-material-design: true

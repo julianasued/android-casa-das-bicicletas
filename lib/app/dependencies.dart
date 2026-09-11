@@ -10,6 +10,8 @@ library;
 import 'package:flutter/widgets.dart';
 
 import '../core/env.dart';
+import '../data/local/local_database.dart';
+import '../data/local/reference_cache.dart';
 import '../data/remote/api_client.dart';
 import '../data/remote/http_transport.dart';
 import '../data/repositories/auth_repository_impl.dart';
@@ -73,6 +75,11 @@ class AppDependencies {
     // concorrentes ao mesmo SDK é problema que não precisa existir.
     final printer = PrinterChannel();
 
+    // Uma instância só do banco, pela mesma razão: abrir o mesmo arquivo duas
+    // vezes é como se perde transação em Android. O arquivo é aberto na
+    // primeira consulta, não aqui — subir o aplicativo não deve esperar disco.
+    final cache = ReferenceCache(LocalDatabase());
+
     return AppDependencies(
       environment: env,
       secureStore: secureStore,
@@ -80,8 +87,8 @@ class AppDependencies {
       transport: transport,
       apiClient: api,
       auth: AuthRepositoryImpl(api: api, session: session),
-      catalog: CatalogRepositoryImpl(api),
-      customers: CustomerRepositoryImpl(api),
+      catalog: CatalogRepositoryImpl(api, cache: cache),
+      customers: CustomerRepositoryImpl(api, cache: cache),
       sales: SaleRepositoryImpl(api),
       printer: printer,
       printerDiagnostics: printer,

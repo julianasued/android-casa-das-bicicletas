@@ -75,9 +75,34 @@ desligou o terminal, e está documentada como não repetir.
 O roteiro completo, com os números medidos e o que ficou em aberto, está em
 [`checklist_teste_m10.md`](docs/checklist_teste_m10.md).
 
-Fora do escopo desta sprint, conforme o planejamento: caixa e documento 2
-(Sprint 5), notinhas e pendências (Sprint 7) e a fila local de sincronização
-(Sprint 9). Os pontos de extensão dessas sprints já estão previstos — o
+## Sprint 9 — Offline, Fase 1: cache de leitura
+
+Banco local (RF34) guardando catálogo, categorias e clientes. Quando a rede
+falha, a consulta responde o que está no cache em vez de uma tela de erro —
+§13.9 põe consulta de produto e de cliente entre as operações que devem
+funcionar offline.
+
+Três decisões que o código documenta:
+
+- **o cache se enche do que a busca online já devolveu**, e não de uma rota de
+  sincronização: o `GET /sync/pull/` não tem payload especificado na API, e a
+  própria especificação lista a paginação dele como pendência. Aproveitar as
+  buscas que o vendedor faz enche o cache sem inventar contrato — e no balcão o
+  que se consulta é o que se vende;
+- **só falha de rede cai para o cache.** Erro do servidor (`403`, `422`) é
+  resposta legítima e sobe para quem chamou; disfarçá-la de sucesso esconderia
+  problema de permissão ou de contrato;
+- **sem rede e sem cache continua sendo falha**, não lista vazia. Dizer "nenhum
+  produto" quando não se sabe faria o vendedor procurar no estoque um item que
+  existe.
+
+Falta da Sprint 9: a fila de operações (RF35), o documento 1 montado no próprio
+terminal, a sincronização (`POST /sync/push/`) e os conflitos (13.11). O
+obstáculo conhecido é o documento: hoje ele vem pronto do servidor na resposta
+do `POST /sales/`, e imprimir offline exige o terminal saber montá-lo.
+
+Fora do escopo deste repositório: caixa e documento 2 (Sprint 5) e comissão
+(Sprint 6), que são do projeto web. Os pontos de extensão dessas sprints já estão previstos — o
 `SaleDraft` é o objeto que a fila local vai gravar, e `ConnectivityChannel` é o
 sinal que vai disparar a sincronização.
 
@@ -112,7 +137,11 @@ Se um dia a política precisar valer sem exceção, o caminho é escrever o enco
 CODE 128 à mão — são as tabelas de 107 símbolos mais o checksum — e conferir a
 saída contra os cupons que já foram validados no M10.
 
-A Sprint 9 acrescentará `sqflite` para o banco local (RF34).
+O `sqflite` entrou com a Fase 1 da Sprint 9, como o planejamento previa (RF34),
+junto com `path` para montar o caminho do arquivo e `sqflite_common_ffi` apenas
+em `dev_dependencies` — é ele que permite rodar os testes do banco contra SQLite
+de verdade, em memória, em vez de um dublê que responderia o que o teste
+mandasse.
 
 ## Estrutura
 
