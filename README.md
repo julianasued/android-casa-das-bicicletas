@@ -32,11 +32,43 @@ M10; leitor; impressora; impressão do primeiro documento*):
 - **Finalização da venda** (`POST /sales/`) com identificador gerado no
   terminal e idempotência por esse mesmo identificador (RF36).
 - **Impressão do documento 1** (RF08) na impressora térmica integrada, com
-  código de barras da venda, e **reimpressão auditável** (§3.4.3).
+  código de barras da venda — **desenhado como bitmap**, porque o do SDK não é
+  legível neste terminal — e **reimpressão auditável** (§3.4.3).
 - **Leitor de código de barras**: canal nativo, modo teclado e localização da
   venda pelo código lido (RF09, sem a confirmação do caixa — Sprint 5).
 - **Diagnóstico da impressora**: estado, avanço de papel e página de teste, com
   falta de papel e impressora ausente tratadas como falhas distintas (§11).
+
+### O que o M10 físico ensinou
+
+O POC foi executado no aparelho e mudou o código em seis pontos. Nenhum desses
+defeitos aparecia em emulador ou em teste automatizado, e todos quebrariam a
+venda no balcão:
+
+| Defeito | O que acontecia |
+| ------- | --------------- |
+| `checkElgin` reprovava retorno positivo | **nenhuma notinha** era dada como impressa |
+| `CONEXAO_ATIVA` (-6) tratada como falha | impressora sumia depois de trocar de tela |
+| CODE 128 sem o seletor `{B` | código de barras nunca saía |
+| ZXing ausente do APK | códigos e QR morriam em tempo de execução |
+| QR Code com nível de correção 0 | **nenhum QR** jamais saiu |
+| Código de barras com 7,5 mm de altura | saía desenhado e nenhum leitor decodificava |
+
+Duas respostas que só o aparelho podia dar, e que estão fora da documentação
+pública da Elgin: a impressora conecta com `AbreConexaoImpressora(6, "M8")`, e
+`StatusImpressora` só responde no assunto do papel — `5` dá para imprimir, `7`
+não, sendo **tampa aberta e falta de papel indistinguíveis** entre si. O aviso
+ao operador tem de cobrir os dois casos.
+
+Sem solução, com causa registrada: o M10 **não tem sinal sonoro**
+(`SinalSonoro` responde -401, função não suportada) e o **display do cliente de
+2,4" não abre** — o `bindService` no serviço do terminal falha, o que aponta
+para o `net.nyx.printerservice` não existir neste aparelho. O display não
+bloqueia a venda. **Atenção:** a tentativa de contornar isso pelo caminho iMin
+desligou o terminal, e está documentada como não repetir.
+
+O roteiro completo, com os números medidos e o que ficou em aberto, está em
+[`checklist_teste_m10.md`](docs/checklist_teste_m10.md).
 
 Fora do escopo desta sprint, conforme o planejamento: caixa e documento 2
 (Sprint 5), notinhas e pendências (Sprint 7) e a fila local de sincronização
@@ -51,15 +83,29 @@ sinal que vai disparar a sincronização.
 - Comunicação exclusiva via API REST sobre HTTPS
 - SQLite local para operação offline-first — **Sprint 9**
 
-### Sem dependências de terceiros
+### Uma dependência de terceiros, e o motivo
 
-O `pubspec.yaml` não declara pacote algum além do SDK do Flutter. Rede
+A regra do projeto é não declarar pacote algum além do SDK do Flutter. Rede
 (`dart:io`), JSON (`dart:convert`), estado de tela (`ChangeNotifier`) e
 identificadores (UUID v4 em `core/uuid.dart`) já vêm no SDK; armazenamento
 seguro, conectividade e identificação do aparelho são canais nativos que este
 projeto precisaria escrever de qualquer maneira, porque a impressora e o leitor
 do M10 já exigem código Kotlin. Cada pacote a menos é uma atualização a menos
 para empurrar a um terminal que fica meses no balcão sem ninguém mexer.
+
+**A exceção é `barcode`, e ela existe porque o SDK da Elgin não desenha código
+de barras legível neste terminal.** No M10 quem dimensiona as barras é o serviço
+NYX, e o `ImpressaoCodigoBarras` devolve sucesso enquanto produz um código que
+nenhum leitor decodifica — conferido no aparelho, onde o código de venda saía
+ilegível pelo SDK e legível desenhado por nós, na mesma tirada de papel. O
+pacote entra apenas para **codificar** o CODE 128; a rasterização é feita com o
+`dart:ui` do próprio Flutter, e não com o pacote `image`, que traria peso que
+não se justifica para desenhar retângulos. Ver `platform/printer/barcode_bitmap.dart`
+e o §Impressão de [`checklist_teste_m10.md`](docs/checklist_teste_m10.md).
+
+Se um dia a política precisar valer sem exceção, o caminho é escrever o encoder
+CODE 128 à mão — são as tabelas de 107 símbolos mais o checksum — e conferir a
+saída contra os cupons que já foram validados no M10.
 
 A Sprint 9 acrescentará `sqflite` para o banco local (RF34).
 
