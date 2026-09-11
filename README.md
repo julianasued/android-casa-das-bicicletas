@@ -96,10 +96,42 @@ Três decisões que o código documenta:
   produto" quando não se sabe faria o vendedor procurar no estoque um item que
   existe.
 
-Falta da Sprint 9: a fila de operações (RF35), o documento 1 montado no próprio
-terminal, a sincronização (`POST /sync/push/`) e os conflitos (13.11). O
-obstáculo conhecido é o documento: hoje ele vem pronto do servidor na resposta
-do `POST /sales/`, e imprimir offline exige o terminal saber montá-lo.
+## Sprint 9 — Offline, Fase 2: a venda acontece sem rede
+
+Sem internet, a venda vai para uma fila local (RF35) e o documento 1 é montado
+no próprio terminal. O cliente leva o papel ao caixa como sempre.
+
+**O documento provisório é honesto sobre o que não sabe.** Três campos são do
+servidor por definição: o `id` da venda, a `reference` (`DOC1-L1-...`, exigida na
+devolução — 13.4) e a `sequence` da via. No lugar da referência sai
+`AGUARDANDO SINCRONIZACAO`, e o aviso do papel diz que o número definitivo vem
+na reimpressão. Gerar uma referência local que depois divergisse deixaria o papel
+do cliente apontando para um documento que não existe.
+
+**O código de barras, sim, vale desde já** — é calculado do `uuid` do terminal
+pela mesma regra do backend, e é o que o caixa lê para achar a venda (RF09).
+
+Cuidados que os testes prendem:
+
+- **só falha de rede vira fila.** Recusa do servidor — desconto acima do teto,
+  produto inativo — é resposta legítima que o vendedor pode corrigir;
+  enfileirá-la faria a venda "dar certo" no balcão para ser recusada a cada
+  sincronização;
+- **a fila recebe antes de o papel sair**, mesma ordem do caminho online: um
+  documento impresso de uma venda que não ficou registrada em lugar nenhum é o
+  pior desfecho possível;
+- **sem o mínimo para o cupom, a falha de rede segue seu caminho.** Melhor o
+  vendedor saber que não deu do que receber um papel que não identifica a loja;
+- **a venda local nasce `AGUARDANDO_CAIXA`**, não em limbo:
+  `PENDENTE_SINCRONIZACAO` é estado da operação na fila, não da venda.
+
+A identidade do terminal (nome, CNPJ e endereço da loja, nome do terminal) é
+**aprendida**, não configurada: vem dentro do documento que o servidor já mandou
+— o único lugar que traz o nome do terminal — e de `GET /stores/{id}/`.
+
+Falta da Sprint 9: a sincronização (`POST /sync/push/`), que envia a fila quando
+a rede volta, e os conflitos (13.11). O `ConnectivityChannel` já existe para ser
+o gatilho.
 
 Fora do escopo deste repositório: caixa e documento 2 (Sprint 5) e comissão
 (Sprint 6), que são do projeto web. Os pontos de extensão dessas sprints já estão previstos — o

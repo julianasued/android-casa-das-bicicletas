@@ -35,7 +35,7 @@ class SaleRepositoryImpl implements SaleRepository {
   Future<Result<SaleWithDocument>> create(SaleDraft draft) async {
     final response = await _api.post(
       ApiEndpoints.sales,
-      body: _bodyFor(draft),
+      body: payloadFor(draft),
       idempotencyKey: draft.uuid,
     );
 
@@ -55,7 +55,8 @@ class SaleRepositoryImpl implements SaleRepository {
     return resultado;
   }
 
-  Map<String, Object?> _bodyFor(SaleDraft draft) => {
+  @override
+  Map<String, Object?> payloadFor(SaleDraft draft) => {
         'uuid': draft.uuid,
         'payment_method': draft.paymentMethod.code,
         if (draft.customer != null) 'customer_id': draft.customer!.id,

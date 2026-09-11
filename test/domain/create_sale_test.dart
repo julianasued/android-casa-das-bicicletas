@@ -34,6 +34,9 @@ class _SaleRepositoryStub implements SaleRepository {
   @override
   Future<Result<PrintedDocument>> reprintDocument(int saleId, DocumentType type) =>
       throw UnimplementedError();
+  @override
+  Map<String, Object?> payloadFor(SaleDraft draft) => {'uuid': draft.uuid};
+
 }
 
 Product _pneu() => Product(

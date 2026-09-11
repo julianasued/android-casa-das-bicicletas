@@ -14,9 +14,10 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../../domain/entities/pending_operation.dart';
+import '../../domain/repositories/sync_queue.dart';
 import 'local_database.dart';
 
-class OperationQueue {
+class OperationQueue implements SyncQueue {
   const OperationQueue(this._db);
 
   final LocalDatabase _db;
@@ -27,6 +28,7 @@ class OperationQueue {
   /// fila, o que está gravado é o que o cliente levou no papel. Sobrescrever
   /// com uma tentativa nova apagaria o histórico de tentativas e, pior,
   /// substituiria o payload que o documento impresso reflete.
+  @override
   Future<void> enqueue(PendingOperation operation) async {
     final db = await _db.open();
     await db.insert(
@@ -128,6 +130,7 @@ class OperationQueue {
   }
 
   /// Quantas estão em cada situação, para a tela avisar o operador.
+  @override
   Future<QueueSummary> summary() async {
     final db = await _db.open();
 
