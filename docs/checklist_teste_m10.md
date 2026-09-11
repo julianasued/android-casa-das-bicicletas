@@ -226,6 +226,51 @@ há o que corrigir do lado do aplicativo — é firmware ou modelo sem o recurso
 Nada disto bloqueia a venda: o display é comodidade para o cliente ver o valor,
 e o operador não perde nenhuma função sem ele.
 
+### ⚠️ Tentativa pelo caminho iMin desligou o terminal (11/09/2026)
+
+**Não repetir sem falar com a Elgin antes.** Um APK que seguia o caminho
+descrito abaixo fez o M10 **desligar** durante o teste. A impressora continuou
+funcionando depois, mas um terminal que reinicia no meio do atendimento é pior
+que um display que não acende.
+
+O que a investigação estabeleceu, e que fica aqui porque é factual e pouparia o
+trabalho de quem tentar de novo:
+
+**`M10_PRO` nunca usou `ImplementacaoM11`.** O `setDisplay` do `E1_Display`
+mapeia (`tableswitch` sobre o `$SwitchMap`) assim:
+
+| Enum | Índice | Implementação |
+| ---- | ------ | ------------- |
+| PIX4 | 1 | `ImplementacaoPIX4` |
+| TPRO | 2 | `ImplementacaoIMIN` |
+| **M10_PRO** | **3** | **`ImplementacaoIMIN`** |
+| M11 | 4 | `ImplementacaoM11` |
+
+**As três famílias têm contratos complementares**, e cada uma deixa como stub o
+que não faz — o stub loga "Dispositivo não suporta esta função" e devolve
+`FALHA` (-1) sem tentar nada:
+
+| Método | iMin | M11 | PIX4 |
+| ------ | ---- | --- | ---- |
+| `AbreConexaoDisplay` | — | sim | sim |
+| `InicializaDisplay` | sim | sim | sim |
+| `ApresentaTexto` | — | sim | — |
+| `ApresentaTextoColorido` | sim | — | sim |
+| `DesconectarDisplay` | — | sim | sim |
+
+Daí o `-1` do M10_PRO: não é falha de hardware, é `IAbreConexaoDisplay` sendo
+stub no iMin. E o texto simples também é stub ali — só o colorido existe.
+
+A correção aparente seria pular `AbreConexaoDisplay` e usar
+`ApresentaTextoColorido`. **Foi isso que desligou o aparelho**, e é onde a
+investigação para: sem documentação da Elgin sobre a sequência correta do
+display iMin, mexer às cegas em algo que derruba o terminal não se justifica
+por um recurso que não bloqueia a venda.
+
+**Próximo passo é com a Elgin, não com o código:** perguntar qual é a sequência
+oficial do display de 2,4" do M10 Pro no SDK E1 02.34.04, dado que
+`AbreConexaoDisplay` não é suportado nessa família.
+
 
 - [ ] **Enviar** abre o display e escreve — funciona com `M10_PRO`?
 - [ ] Se falhar, **anotar** a mensagem: "Serviço M11 indisponível" aponta para o
