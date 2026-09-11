@@ -25,7 +25,7 @@ class LocalDatabase {
   static const String fileName = 'casa_das_bicicletas.db';
 
   /// Sobe quando o esquema muda; cada degrau precisa de um `onUpgrade`.
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
 
   final DatabaseFactory _factory;
   final String? _path;
@@ -118,6 +118,7 @@ class LocalDatabase {
     )
     ''',
     _createTerminalIdentity,
+    ..._createQueue,
   ];
 
   /// Cada degrau de versão, para quem já tem o banco em campo.
@@ -126,7 +127,41 @@ class LocalDatabase {
   /// antigo recebe só o que falta — sem dois lugares para manter sincronizados.
   static const Map<int, List<String>> _migrations = {
     2: [_createTerminalIdentity],
+    3: _createQueue,
   };
+
+  /// Fila de operações (RF35).
+  ///
+  /// `operation_id` é a chave primária, e não um autoincremento: ele é o
+  /// identificador de idempotência (RF36), o mesmo valor que vai no
+  /// `X-Idempotency-Key` e no `operation_id` do lote de sync. Gravar duas vezes
+  /// a mesma operação é erro de programação, e a chave primária diz isso na
+  /// hora em vez de deixar duas vendas iguais na fila.
+  ///
+  /// `payload` é o corpo REST em JSON. Guardar o corpo pronto — em vez de
+  /// remontar da venda na hora de enviar — é o que garante que o servidor receba
+  /// exatamente o que o papel do cliente diz, mesmo que a regra de preço mude
+  /// entre a venda e a sincronização.
+  static const List<String> _createQueue = [
+    '''
+    CREATE TABLE pending_operation (
+      operation_id TEXT    PRIMARY KEY,
+      type         TEXT    NOT NULL,
+      payload      TEXT    NOT NULL,
+      occurred_at  TEXT    NOT NULL,
+      status       TEXT    NOT NULL,
+      attempts     INTEGER NOT NULL DEFAULT 0,
+      last_error   TEXT,
+      server_id    INTEGER,
+      conflict_id  TEXT,
+      synced_at    TEXT,
+      created_at   TEXT    NOT NULL
+    )
+    ''',
+    // A fila é lida por status e enviada na ordem em que aconteceu: o servidor
+    // precisa ver a venda antes do pagamento dela.
+    'CREATE INDEX idx_pending_status ON pending_operation (status, occurred_at)',
+  ];
 
   /// Identidade do terminal: o que o documento precisa e o `SaleDraft` não tem.
   ///
