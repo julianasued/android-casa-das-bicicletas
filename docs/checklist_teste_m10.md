@@ -80,7 +80,7 @@ máscara de bits **não se confirmou**: se valesse, a tampa aberta teria levado
 - [x] Texto sai legível
 - [x] Alinhamento: esquerda, centro e direita nas posições certas
 - [x] Negrito, sublinhado, altura dupla e largura dupla saem diferentes entre si
-- [x] CODE 128 sai e é legível por um leitor  *(só desenhado como imagem)*
+- [x] CODE 128 sai e é legível por um leitor  *(desenhado como imagem, altura 120)*
 - [ ] EAN-13 sai e é legível  *(sai pelo SDK; leitura irregular)*
 - [x] EAN-8 sai e é legível  *(pelo SDK, sem precisar de imagem)*
 - [x] QR Code sai e é legível por um celular
@@ -169,6 +169,37 @@ caminho é o mesmo do CODE 128.
 (`ERRO_FUNCAO_NAO_SUPORTADA`). Não é defeito e não adianta insistir: quem
 quiser avisar o operador por som terá de usar o áudio do Android, não a
 impressora.
+
+#### A notinha inteira, pelo caminho de produção (11/09/2026)
+
+Testado pela tela de diagnóstico da impressora, que usa o mesmo
+`sendCommands` da notinha: Dart → `_drawBarcodes` → canal legado
+(`vendas/printer`) → `ThermalPrinter.ImageBytes` → `ImprimeImagem(Bitmap)`.
+É o trecho que só existia em teste de unidade até aqui, e **funciona**.
+
+**A altura do código era o que faltava.** Com os 60 pontos que o `PrintBarcode`
+usava (≈7,5 mm) o código saía desenhado e **nenhum leitor decodificava**; com
+120 (≈15 mm) lê. Leitor de câmera precisa de faixa vertical para achar o
+código, e a densidade não tem nada a ver com isso — o mesmo dado, no mesmo
+módulo, só muda a altura.
+
+O aviso para quem for depurar: **código desenhado não é código legível**, e as
+duas coisas se parecem no papel.
+
+**Não é preciso encurtar o código de venda.** Imprimindo quatro candidatos
+lado a lado pelo caminho da notinha, todos leram — inclusive o formato atual de
+16 caracteres, que fica com 1 ponto por módulo:
+
+| Candidato | Chars | Módulo | Leu? |
+| --------- | ----- | ------ | ---- |
+| `SALE-L1-7F3A9C2B` | 16 | 1 | sim |
+| `L1-7F3A9C2B` | 11 | 2 | sim |
+| `L17F3A9C2B` | 10 | 2 | sim |
+| `7F3A9C2B` | 8 | 3 | sim |
+
+Ou seja: o `identifiers.py` do backend fica como está, e o contrato entre
+terminal e servidor não muda. Se algum dia a impressão piorar, a tabela acima
+diz para onde ir — encurtar dobra a largura da barra sem trocar de simbologia.
 
 #### Duas medidas que ficam
 

@@ -70,6 +70,16 @@ void main() {
     expect(largura, code128Modules(8) * 3);
   });
 
+  test('a altura padrao da faixa que o leitor precisa', () async {
+    // 60 pontos saiam desenhados e nao decodificavam no M10 Pro; 120 sao ~15mm,
+    // o minimo usual para leitura por camera.
+    await printer.sendCommands([const PrintBarcode('7F3A9C2B')]);
+
+    final altura =
+        ByteData.sublistView(enviados.single['bytes']! as Uint8List).getUint32(20);
+    expect(altura, 120);
+  });
+
   test('respeita a altura pedida no comando', () async {
     await printer.sendCommands([const PrintBarcode('7F3A9C2B', height: 90)]);
 

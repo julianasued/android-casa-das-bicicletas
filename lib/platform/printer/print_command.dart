@@ -86,11 +86,19 @@ class PrintText extends PrintCommand {
 }
 
 /// Código de barras da venda (RF08) — o que o caixa vai ler (RF09).
+///
+/// A altura padrão é 120 pontos, cerca de 15 mm. Os 60 de antes saíam
+/// desenhados e **não decodificavam**: conferido no M10 Pro em 11/09/2026, onde
+/// o mesmo dado, no mesmo módulo, leu a 120 e não leu a 60. Leitor de câmera
+/// precisa de faixa vertical para achar o código, e 7,5 mm não bastam.
+///
+/// Custa uns 7 mm de papel por código — barato comparado a um caixa que não
+/// consegue localizar a venda.
 class PrintBarcode extends PrintCommand {
   const PrintBarcode(
     this.data, {
     this.symbology = BarcodeSymbology.code128,
-    this.height = 60,
+    this.height = 120,
     this.width = 2,
     this.hri = HriPosition.below,
   });
