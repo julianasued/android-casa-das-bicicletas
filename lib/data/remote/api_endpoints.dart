@@ -18,6 +18,9 @@ class ApiEndpoints {
   static const String customers = 'customers/';
   static const String sales = 'sales/';
 
+  /// Envia o lote de operações feitas offline (RF33–RF37, API §3.9).
+  static const String syncPush = 'sync/push/';
+
   static String store(int id) => 'stores/$id/';
   static String sale(int id) => 'sales/$id/';
   /// Pendências do cliente (RF15). O vendedor pode consultar.

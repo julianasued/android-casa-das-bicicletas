@@ -32,6 +32,11 @@ class _BootstrapPageState extends State<BootstrapPage> {
     await deps.session.restore();
     await deps.connectivity.start();
 
+    // Depois do `start`, para o agendador já nascer sabendo se há rede. O
+    // terminal pode ter sido reiniciado depois de um dia inteiro sem conexão, e
+    // aí há fila esperando desde antes de o aplicativo abrir (§13.10).
+    deps.syncScheduler?.start();
+
     if (!mounted) return;
 
     final session = deps.session;

@@ -129,9 +129,34 @@ A identidade do terminal (nome, CNPJ e endereço da loja, nome do terminal) é
 **aprendida**, não configurada: vem dentro do documento que o servidor já mandou
 — o único lugar que traz o nome do terminal — e de `GET /stores/{id}/`.
 
-Falta da Sprint 9: a sincronização (`POST /sync/push/`), que envia a fila quando
-a rede volta, e os conflitos (13.11). O `ConnectivityChannel` já existe para ser
-o gatilho.
+## Sprint 9 — Offline, Fase 3: a fila sobe quando a rede volta
+
+`POST /sync/push/` em lote, disparado pela volta da conexão (§13.10). O gatilho é
+o `ConnectivityChannel`, que existia desde a Sprint 4 esperando por isto.
+
+**O gatilho é a subida, não a mudança.** A conexão de um terminal no balcão
+oscila, e avisar a cada notificação faria o aplicativo tentar sincronizar quando
+a rede acabou de cair. Há também uma tentativa periódica, porque falha de
+servidor não muda o estado da conexão: sem ela, uma venda recusada por um `500`
+esperaria a próxima oscilação de rede, o que pode não acontecer no mesmo dia.
+
+Cada desfecho decide o destino de uma venda que já aconteceu, e é aí que os
+testes apertam:
+
+- **um desfecho não arrasta os outros.** O §3.9 é explícito — operação recusada
+  não interrompe o lote. Uma venda entra enquanto a seguinte conflita;
+- **operação sobre a qual o servidor não falou fica como falha**, nunca como
+  sincronizada: supor que foi aceita perderia a venda, e voltar na próxima rodada
+  é seguro porque a idempotência (RF36) impede duplicata;
+- **falha do lote inteiro não marca ninguém.** Rede caindo no meio do envio não é
+  problema das operações, e marcá-las infl aria a contagem de tentativas;
+- **uma sincronização por vez.** O gatilho é evento de rede, que dispara duas
+  vezes quando o sinal oscila; dois envios do mesmo lote embaralhariam a
+  contagem de tentativas;
+- **status desconhecido vira erro**, não sucesso — mesma razão de sempre.
+
+Falta da Sprint 9: a tela dos conflitos (13.11), para o operador ver o que está
+pendente e o gerente decidir, e a auditoria offline (RF37).
 
 Fora do escopo deste repositório: caixa e documento 2 (Sprint 5) e comissão
 (Sprint 6), que são do projeto web. Os pontos de extensão dessas sprints já estão previstos — o

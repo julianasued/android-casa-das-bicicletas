@@ -15,9 +15,10 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../domain/entities/pending_operation.dart';
 import '../../domain/repositories/sync_queue.dart';
+import '../../domain/usecases/sync_pending_operations.dart';
 import 'local_database.dart';
 
-class OperationQueue implements SyncQueue {
+class OperationQueue implements SyncQueue, SyncableQueue {
   const OperationQueue(this._db);
 
   final LocalDatabase _db;
@@ -55,6 +56,7 @@ class OperationQueue implements SyncQueue {
   /// Inclui as que falharam, porque a causa costuma ser passageira. Exclui as
   /// conflitantes: insistir produziria o mesmo conflito e encheria a auditoria
   /// de ruído.
+  @override
   Future<List<PendingOperation>> nextBatch({int limit = 50}) async {
     final db = await _db.open();
     final linhas = await db.query(
@@ -69,6 +71,7 @@ class OperationQueue implements SyncQueue {
   }
 
   /// Marca como aceita pelo servidor.
+  @override
   Future<void> markSynced(String operationId, {int? serverId}) async {
     final db = await _db.open();
     await db.update(
@@ -88,6 +91,7 @@ class OperationQueue implements SyncQueue {
   ///
   /// A contagem serve para a tela poder dizer "tentei sete vezes" em vez de só
   /// "erro" — sete tentativas falhando é outro problema que a primeira.
+  @override
   Future<void> markFailed(String operationId, String error) async {
     final db = await _db.open();
     await db.rawUpdate(
@@ -101,6 +105,7 @@ class OperationQueue implements SyncQueue {
   }
 
   /// Marca conflito (13.11): sai da fila de reenvio e espera decisão humana.
+  @override
   Future<void> markConflicting(
     String operationId, {
     String? conflictId,

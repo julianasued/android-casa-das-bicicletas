@@ -16,7 +16,9 @@ import '../../domain/entities/customer.dart';
 import '../../domain/entities/payment_method.dart';
 import '../../domain/entities/printed_document.dart';
 import '../../domain/entities/product.dart';
+import '../../domain/entities/pending_operation.dart';
 import '../../domain/entities/receivable.dart';
+import '../../domain/entities/sync_outcome.dart';
 import '../../domain/entities/sale.dart';
 import '../../domain/entities/seller.dart';
 import '../../domain/entities/store.dart';
@@ -155,6 +157,24 @@ Customer customerFromJson(Map<String, Object?> json) => Customer(
       address: readStringOrNull(json, 'address'),
       isActive: json['is_active'] as bool? ?? true,
     );
+
+SyncOutcome syncOutcomeFromJson(Map<String, Object?> json) => SyncOutcome(
+      operationId: readString(json, 'operation_id'),
+      // Status que este aplicativo não conhece vira `erro`, e não
+      // `sincronizado`: a operação volta para a fila e a idempotência do
+      // servidor (RF36) impede duplicata. Supor que foi aceita perderia a venda.
+      status: _syncStatusFromCode(readStringOrNull(json, 'status')),
+      serverId: readIntOrNull(json, 'server_id'),
+      conflictId: readStringOrNull(json, 'conflict_id'),
+      message: readStringOrNull(json, 'message') ??
+          readStringOrNull(json, 'detail'),
+    );
+
+SyncStatus _syncStatusFromCode(String? code) => switch (code) {
+      'SINCRONIZADO' => SyncStatus.sincronizado,
+      'CONFLITANTE' => SyncStatus.conflitante,
+      _ => SyncStatus.erro,
+    };
 
 Receivable receivableFromJson(Map<String, Object?> json) => Receivable(
       id: readInt(json, 'id'),

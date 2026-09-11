@@ -14,6 +14,9 @@ import '../data/local/local_database.dart';
 import '../data/local/operation_queue.dart';
 import '../domain/repositories/sync_queue.dart';
 import '../domain/rules/offline_sale_context.dart';
+import '../data/repositories/sync_repository_impl.dart';
+import '../domain/usecases/sync_pending_operations.dart';
+import '../platform/connectivity/sync_scheduler.dart';
 import '../data/local/reference_cache.dart';
 import '../data/remote/api_client.dart';
 import '../data/remote/http_transport.dart';
@@ -89,6 +92,7 @@ class AppDependencies {
     required this.device,
     this.syncQueue,
     this.referenceCache,
+    this.syncScheduler,
   })  : openTerminal = OpenTerminal(auth),
         selectSeller = SelectSeller(auth),
         createSale = CreateSale(
@@ -115,6 +119,10 @@ class AppDependencies {
   /// O cache de referência, de onde sai a identidade do terminal.
   final ReferenceCache? referenceCache;
 
+  /// Quem manda a fila ao servidor quando a rede volta (§13.10). Ausente nos
+  /// testes que não precisam de sincronização.
+  final SyncScheduler? syncScheduler;
+
   /// Grafo real do terminal: canais nativos e HTTP de verdade.
   factory AppDependencies.production({AppEnvironment? environment}) {
     final env = environment ?? AppEnvironment.fromDefines();
@@ -133,6 +141,16 @@ class AppDependencies {
     final banco = LocalDatabase();
     final cache = ReferenceCache(banco);
     final fila = OperationQueue(banco);
+    final connectivity = ConnectivityChannel();
+
+    // A fila enche sozinha, mas não esvazia sozinha: este é o gatilho.
+    final scheduler = SyncScheduler(
+      connectivity: connectivity,
+      sync: SyncPendingOperations(
+        queue: fila,
+        sync: SyncRepositoryImpl(api),
+      ),
+    );
 
     return AppDependencies(
       environment: env,
@@ -148,10 +166,11 @@ class AppDependencies {
       printerDiagnostics: printer,
       scanner: ScannerChannel(),
       customerDisplay: M10CustomerDisplay(),
-      connectivity: ConnectivityChannel(),
+      connectivity: connectivity,
       device: const DeviceChannel(),
       syncQueue: fila,
       referenceCache: cache,
+      syncScheduler: scheduler,
     );
   }
 
