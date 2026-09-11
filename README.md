@@ -38,6 +38,11 @@ M10; leitor; impressora; impressão do primeiro documento*):
   venda pelo código lido (RF09, sem a confirmação do caixa — Sprint 5).
 - **Diagnóstico da impressora**: estado, avanço de papel e página de teste, com
   falta de papel e impressora ausente tratadas como falhas distintas (§11).
+- **Pendências do cliente** (RF15): o vendedor consulta o quanto o cliente já
+  deve antes de fiar outra vez, com aviso de pendência vencida. A consulta fica
+  num botão próprio na escolha do cliente — quem vende à vista não passa por uma
+  tela a mais. Registrar o pagamento da pendência é do caixa (RF16), fora deste
+  aplicativo.
 
 ### O que o M10 físico ensinou
 

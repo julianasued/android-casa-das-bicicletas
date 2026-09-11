@@ -20,6 +20,10 @@ class ApiEndpoints {
 
   static String store(int id) => 'stores/$id/';
   static String sale(int id) => 'sales/$id/';
+  /// Pendências do cliente (RF15). O vendedor pode consultar.
+  static String customerReceivables(int customerId) =>
+      'customers/$customerId/receivables/';
+
   static String saleByBarcode(String barcode) => 'sales/by-barcode/$barcode/';
   static String printDocument1(int saleId) => 'sales/$saleId/document-1/print/';
   static String printDocument2(int saleId) => 'sales/$saleId/document-2/print/';

@@ -16,6 +16,7 @@ import '../../domain/entities/customer.dart';
 import '../../domain/entities/payment_method.dart';
 import '../../domain/entities/printed_document.dart';
 import '../../domain/entities/product.dart';
+import '../../domain/entities/receivable.dart';
 import '../../domain/entities/sale.dart';
 import '../../domain/entities/seller.dart';
 import '../../domain/entities/store.dart';
@@ -153,6 +154,18 @@ Customer customerFromJson(Map<String, Object?> json) => Customer(
       phone: readStringOrNull(json, 'phone'),
       address: readStringOrNull(json, 'address'),
       isActive: json['is_active'] as bool? ?? true,
+    );
+
+Receivable receivableFromJson(Map<String, Object?> json) => Receivable(
+      id: readInt(json, 'id'),
+      saleId: readIntOrNull(json, 'sale_id') ?? 0,
+      originalAmount: readMoney(json, 'original_amount'),
+      // `paid_amount` vem "0.00" numa pendência nova, mas tratar como opcional
+      // custa nada e evita quebrar se a API omitir o campo.
+      paidAmount: readMoneyOrZero(json, 'paid_amount'),
+      pendingAmount: readMoney(json, 'pending_amount'),
+      status: ReceivableStatus.fromCode(readStringOrNull(json, 'status')),
+      createdAt: readDateTime(json, 'created_at'),
     );
 
 SaleItem saleItemFromJson(Map<String, Object?> json) => SaleItem(

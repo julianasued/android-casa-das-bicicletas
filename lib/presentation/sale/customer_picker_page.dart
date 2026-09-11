@@ -13,6 +13,7 @@ import '../../core/failure.dart';
 import '../../core/formatters.dart';
 import '../../core/result.dart';
 import '../../domain/entities/customer.dart';
+import '../../domain/entities/receivable.dart';
 import '../shared/feedback.dart';
 
 class CustomerPickerPage extends StatefulWidget {
@@ -132,6 +133,17 @@ class _CustomerPickerPageState extends State<CustomerPickerPage> {
               if (customer.phone != null) customer.phone!,
             ].join(' · '),
           ),
+          // A consulta fica num botão próprio, e não no toque da linha: quem
+          // vende à vista escolhe o cliente e segue, sem passar por uma tela a
+          // mais. Quem vai fiar é que precisa do número (RF15).
+          trailing: IconButton(
+            icon: const Icon(Icons.receipt_long_outlined),
+            tooltip: 'Pendências',
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => _ReceivablesDialog(customer: customer),
+            ),
+          ),
           onTap: () => Navigator.of(context).pop(customer),
         );
       },
@@ -230,6 +242,164 @@ class _NewCustomerDialogState extends State<_NewCustomerDialog> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Text('Cadastrar'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Pendências do cliente (RF15).
+///
+/// A pergunta do balcão não é "quais são as pendências" e sim "posso vender
+/// fiado para esta pessoa", então o total devido vem primeiro e grande; a lista
+/// fica abaixo, para quando o vendedor precisa saber de qual venda veio.
+class _ReceivablesDialog extends StatefulWidget {
+  const _ReceivablesDialog({required this.customer});
+
+  final Customer customer;
+
+  @override
+  State<_ReceivablesDialog> createState() => _ReceivablesDialogState();
+}
+
+class _ReceivablesDialogState extends State<_ReceivablesDialog> {
+  List<Receivable>? _receivables;
+  Failure? _failure;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _receivables = null;
+      _failure = null;
+    });
+
+    final result = await context.deps.customers.receivables(widget.customer.id);
+    if (!mounted) return;
+
+    switch (result) {
+      case Ok(:final value):
+        setState(() => _receivables = value);
+      case Err(:final failure):
+        setState(() => _failure = failure);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.customer.name),
+      content: SizedBox(width: 420, child: _content(context)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Fechar'),
+        ),
+      ],
+    );
+  }
+
+  Widget _content(BuildContext context) {
+    if (_failure case final Failure failure) {
+      return FailureView(failure: failure, onRetry: _load);
+    }
+
+    if (_receivables case final List<Receivable> receivables) {
+      if (receivables.isEmpty) {
+        return const EmptyView(
+          icon: Icons.check_circle_outline,
+          message: 'Nenhuma pendência. O cliente não deve nada.',
+        );
+      }
+      return _list(context, receivables);
+    }
+
+    return const SizedBox(
+      height: 120,
+      child: LoadingView(label: 'Consultando pendências...'),
+    );
+  }
+
+  Widget _list(BuildContext context, List<Receivable> receivables) {
+    final scheme = Theme.of(context).colorScheme;
+    final devendo = receivables.totalOutstanding;
+    final vencida = receivables.hasOverdue;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // O número que decide a venda.
+        Card(
+          color: vencida ? scheme.errorContainer : scheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Icon(
+                  vencida ? Icons.warning_amber : Icons.account_balance_wallet_outlined,
+                  color: vencida ? scheme.onErrorContainer : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Devendo ${devendo.toDisplayString()}',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: vencida ? scheme.onErrorContainer : null,
+                            ),
+                      ),
+                      if (vencida)
+                        Text(
+                          'Há pendência vencida.',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: scheme.onErrorContainer,
+                              ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Flexible(
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: receivables.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final receivable = receivables[index];
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  'Venda ${receivable.saleId} · ${receivable.status.label}',
+                ),
+                subtitle: Text(
+                  receivable.isPartiallyPaid
+                      // Mostrar o pago junto: sem isso, um saldo menor que o
+                      // valor da venda parece erro de cálculo.
+                      ? '${formatDate(receivable.createdAt)} · '
+                          'de ${receivable.originalAmount.toDisplayString()} '
+                          'pagou ${receivable.paidAmount.toDisplayString()}'
+                      : '${formatDate(receivable.createdAt)} · '
+                          'de ${receivable.originalAmount.toDisplayString()}',
+                ),
+                trailing: Text(
+                  receivable.pendingAmount.toDisplayString(),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              );
+            },
+          ),
         ),
       ],
     );

@@ -3,6 +3,7 @@ library;
 
 import '../../core/result.dart';
 import '../../domain/entities/customer.dart';
+import '../../domain/entities/receivable.dart';
 import '../../domain/repositories/customer_repository.dart';
 import '../remote/api_client.dart';
 import '../remote/api_endpoints.dart';
@@ -54,5 +55,17 @@ class CustomerRepositoryImpl implements CustomerRepository {
     );
 
     return mapApiResponse(response, (result) => customerFromJson(result.data));
+  }
+
+  @override
+  Future<Result<List<Receivable>>> receivables(int customerId) async {
+    final response = await _api.get(ApiEndpoints.customerReceivables(customerId));
+
+    return mapApiResponse(
+      response,
+      (result) => [
+        for (final item in readResults(result.data)) receivableFromJson(item),
+      ],
+    );
   }
 }
