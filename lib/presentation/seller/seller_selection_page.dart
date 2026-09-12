@@ -81,7 +81,7 @@ class _SellerSelectionPageState extends State<SellerSelectionPage> {
       case Err(:final failure):
         if (failure is UnauthenticatedFailure) {
           await navigator.pushNamedAndRemoveUntil(
-            AppRoutes.terminalLogin,
+            AppRoutes.welcome,
             (_) => false,
           );
           return;
@@ -94,7 +94,7 @@ class _SellerSelectionPageState extends State<SellerSelectionPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Quem vai vender?'),
+        title: const Text('Vendedor'),
         actions: [
           IconButton(
             tooltip: 'Fechar terminal',
@@ -103,7 +103,7 @@ class _SellerSelectionPageState extends State<SellerSelectionPage> {
           ),
         ],
       ),
-      body: _body(),
+      body: SafeArea(child: _body()),
     );
   }
 
@@ -120,26 +120,29 @@ class _SellerSelectionPageState extends State<SellerSelectionPage> {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: sellers.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final seller = sellers[index];
-        final busy = _selecting == seller.id;
+    return Column(
+      children: [
+        const _Instrucao(),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            itemCount: sellers.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final seller = sellers[index];
 
-        return ListTile(
-          leading: CircleAvatar(child: Text(_initials(seller.name))),
-          title: Text(seller.name),
-          trailing: busy
-              ? const SizedBox.square(
-                  dimension: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.chevron_right),
-          onTap: _selecting == null ? () => _select(seller) : null,
-        );
-      },
+              return _SellerButton(
+                name: seller.name,
+                initials: _initials(seller.name),
+                busy: _selecting == seller.id,
+                // Um toque de cada vez: dois vendedores selecionados em
+                // sequência trocariam a sessão no meio da chamada anterior.
+                onTap: _selecting == null ? () => _select(seller) : null,
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -147,7 +150,7 @@ class _SellerSelectionPageState extends State<SellerSelectionPage> {
     final navigator = Navigator.of(context);
     await context.deps.auth.logout();
     if (!mounted) return;
-    await navigator.pushNamedAndRemoveUntil(AppRoutes.terminalLogin, (_) => false);
+    await navigator.pushNamedAndRemoveUntil(AppRoutes.welcome, (_) => false);
   }
 
   String _initials(String name) {
@@ -155,5 +158,107 @@ class _SellerSelectionPageState extends State<SellerSelectionPage> {
     if (parts.isEmpty || parts.first.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+}
+
+/// Título e instrução da tela (§5 do fluxo).
+class _Instrucao extends StatelessWidget {
+  const _Instrucao();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+      child: Column(
+        children: [
+          Text(
+            'SELECIONE O VENDEDOR',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Toque no nome do vendedor para continuar',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Cada vendedor é um botão inteiro, não uma linha de lista.
+///
+/// A altura de 80 é o que separa "escolher" de "errar": a lista fica ao alcance
+/// do polegar de quem segura o M10 com uma mão só, e uma venda lançada no nome
+/// errado é discussão de comissão no fim do mês (RF17–RF20).
+class _SellerButton extends StatelessWidget {
+  const _SellerButton({
+    required this.name,
+    required this.initials,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final String name;
+  final String initials;
+  final bool busy;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(80),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        alignment: Alignment.centerLeft,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: theme.colorScheme.primaryContainer,
+            child: Text(
+              initials,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ),
+          if (busy)
+            const SizedBox.square(
+              dimension: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            const Icon(Icons.chevron_right, size: 28),
+        ],
+      ),
+    );
   }
 }

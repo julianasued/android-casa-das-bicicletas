@@ -79,7 +79,7 @@ void main() {
     await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
     await tester.pumpAndSettle();
 
-    expect(find.text('Quem vai vender?'), findsOneWidget);
+    expect(find.text('SELECIONE O VENDEDOR'), findsOneWidget);
     expect(find.text('João Silva'), findsOneWidget);
     expect(find.text('Maria Costa'), findsOneWidget);
   });
