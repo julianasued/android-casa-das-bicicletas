@@ -29,7 +29,9 @@ void main() {
 
     test('quantidade zero remove a linha', () {
       final draft = SaleDraft()..add(_product());
-      draft.setQuantity(10, const Quantity.units(0));
+      // A linha tem identidade própria desde a venda manual: o id do produto
+      // não serve mais, porque linha manual não tem produto.
+      draft.setQuantity(draft.lines.single.id, const Quantity.units(0));
 
       expect(draft.isEmpty, isTrue);
     });

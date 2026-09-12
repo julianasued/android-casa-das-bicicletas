@@ -17,22 +17,61 @@ import '../entities/payment_method.dart';
 import '../entities/product.dart';
 import 'sale_pricing.dart';
 
-/// Uma linha do carrinho.
+/// Uma linha do carrinho, de uma das duas formas.
+///
+/// **Manual (V1)** — categoria e valor digitados: "PNEUS, R$ 350,00". É como a
+/// loja vende, e não depende de haver produto cadastrado.
+///
+/// **Catálogo (futuro)** — produto cadastrado, com o preço vindo dele. A
+/// capacidade continua inteira; deixou de ser o caminho obrigatório.
+///
+/// O `id` é local do rascunho, não do servidor: duas linhas manuais da mesma
+/// categoria com valores diferentes são linhas diferentes, e identificá-las
+/// pelo produto — que nem existe — não funcionaria.
 class SaleDraftLine {
-  const SaleDraftLine({required this.product, required this.quantity});
+  const SaleDraftLine.manual({
+    required this.id,
+    required ProductCategory this.category,
+    required Money price,
+    required this.quantity,
+  })  : product = null,
+        _manualPrice = price;
 
-  final Product product;
+  const SaleDraftLine.fromCatalog({
+    required this.id,
+    required Product this.product,
+    required this.quantity,
+  })  : category = null,
+        _manualPrice = null;
+
+  final int id;
+  final Product? product;
+  final ProductCategory? category;
+  final Money? _manualPrice;
   final Quantity quantity;
 
-  /// Bruto da linha: quantidade × preço de catálogo.
-  ///
-  /// O preço não é editável de propósito. O backend confere `unit_price`
-  /// contra o catálogo e recusa divergência: a negociação tem um canal só, que
-  /// é o desconto percentual da venda (13.3).
-  Money get grossAmount => quantity.multiply(product.price);
+  bool get isManual => product == null;
 
-  SaleDraftLine withQuantity(Quantity value) =>
-      SaleDraftLine(product: product, quantity: value);
+  /// O que aparece na linha e no documento impresso.
+  String get label => product?.name ?? category!.name;
+
+  String get categoryCode => product?.categoryCode ?? category!.code;
+
+  /// Na linha de catálogo o preço é o cadastrado — o backend confere e recusa
+  /// divergência, que é o que impede o desconto de 13.3 de virar decoração. Na
+  /// linha manual não há com o que comparar: o valor digitado é o negociado.
+  Money get unitPrice => product?.price ?? _manualPrice!;
+
+  Money get grossAmount => quantity.multiply(unitPrice);
+
+  SaleDraftLine withQuantity(Quantity value) => product != null
+      ? SaleDraftLine.fromCatalog(id: id, product: product!, quantity: value)
+      : SaleDraftLine.manual(
+          id: id,
+          category: category!,
+          price: _manualPrice!,
+          quantity: value,
+        );
 }
 
 /// O que impede a venda de ser finalizada, em texto de balcão.
@@ -69,6 +108,9 @@ class SaleDraft {
 
   final List<SaleDraftLine> _lines;
 
+  /// Identidade local das linhas — o servidor não a conhece.
+  int _nextLineId = 1;
+
   PaymentMethod paymentMethod;
   Customer? customer;
   int discountPercentHundredths = 0;
@@ -85,18 +127,45 @@ class SaleDraft {
       saleBarcodeFor(storeCode: storeCode, saleUuid: uuid);
 
   /// Adiciona o produto; repetir o mesmo produto soma na linha existente.
+  /// Lança uma linha manual: categoria e valor (V1).
+  ///
+  /// Não agrupa com linha igual de propósito: "PEÇAS R$ 120" e "PEÇAS R$ 80"
+  /// são duas vendas distintas dentro da mesma venda, e somá-las esconderia do
+  /// vendedor o que ele acabou de lançar.
+  SaleDraftLine addManual({
+    required ProductCategory category,
+    required Money price,
+    Quantity quantity = const Quantity.units(1),
+  }) {
+    final line = SaleDraftLine.manual(
+      id: _nextLineId++,
+      category: category,
+      price: price,
+      quantity: quantity,
+    );
+    _lines.add(line);
+    return line;
+  }
+
+  /// Lança a partir do catálogo — capacidade guardada, sem uso na V1.
   void add(Product product, {Quantity quantity = const Quantity.units(1)}) {
-    final index = _lines.indexWhere((line) => line.product.id == product.id);
+    final index = _lines.indexWhere((line) => line.product?.id == product.id);
     if (index >= 0) {
       _lines[index] = _lines[index].withQuantity(_lines[index].quantity + quantity);
       return;
     }
-    _lines.add(SaleDraftLine(product: product, quantity: quantity));
+    _lines.add(
+      SaleDraftLine.fromCatalog(
+        id: _nextLineId++,
+        product: product,
+        quantity: quantity,
+      ),
+    );
   }
 
   /// Define a quantidade da linha; quantidade zero ou negativa remove a linha.
-  void setQuantity(int productId, Quantity quantity) {
-    final index = _lines.indexWhere((line) => line.product.id == productId);
+  void setQuantity(int lineId, Quantity quantity) {
+    final index = _lines.indexWhere((line) => line.id == lineId);
     if (index < 0) return;
     if (!quantity.isPositive) {
       _lines.removeAt(index);
@@ -105,8 +174,7 @@ class SaleDraft {
     _lines[index] = _lines[index].withQuantity(quantity);
   }
 
-  void remove(int productId) =>
-      _lines.removeWhere((line) => line.product.id == productId);
+  void remove(int lineId) => _lines.removeWhere((line) => line.id == lineId);
 
   void clear() {
     _lines.clear();

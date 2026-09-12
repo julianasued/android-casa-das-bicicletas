@@ -17,7 +17,13 @@ void main() {
     final deps = buildTestDependencies(
       transport: RecordingTransport((request) {
         if (request.url.path.contains('product-categories')) {
-          return jsonResponse(const {'results': <Object?>[]});
+        return jsonResponse(const {
+          'results': [
+            {'id': 1, 'code': 'PECAS', 'name': 'Peças', 'is_active': true},
+            {'id': 2, 'code': 'PNEUS', 'name': 'Pneus', 'is_active': true},
+            {'id': 3, 'code': 'OLEOS', 'name': 'Óleos', 'is_active': true},
+          ],
+        });
         }
         return jsonResponse(const {
           'results': [
@@ -50,8 +56,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Pneu 26 Cravado').first);
-    await tester.pumpAndSettle();
+    await lancarManual(tester, 'Peças', '120,00');
   }
 
   Future<void> aplicarDesconto(WidgetTester tester, String percentual) async {
@@ -145,4 +150,21 @@ void main() {
       expect(find.textContaining('não recebe no crédito'), findsNothing);
     });
   });
+}
+
+/// Lança uma linha manual — o caminho principal da V1.
+Future<void> lancarManual(
+  WidgetTester tester,
+  String categoria,
+  String valor, {
+  String? quantidade,
+}) async {
+  await tester.tap(find.widgetWithText(FilledButton, categoria.toUpperCase()));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byType(TextField).first, valor);
+  if (quantidade != null) {
+    await tester.enterText(find.byType(TextField).at(1), quantidade);
+  }
+  await tester.tap(find.widgetWithText(FilledButton, 'Lançar'));
+  await tester.pumpAndSettle();
 }

@@ -83,12 +83,14 @@ PrintedDocument? offlineDocument1({
       for (final (indice, line) in draft.lines.indexed)
         SaleItem(
           id: 0,
-          productId: line.product.id,
-          productSku: line.product.sku,
-          productName: line.product.name,
-          categoryCode: line.product.categoryCode,
+          // Zero também aqui na linha manual: não há produto, e o documento
+          // mostra a categoria, que é o que o cliente confere no balcão.
+          productId: line.product?.id ?? 0,
+          productSku: line.product?.sku ?? '',
+          productName: line.label,
+          categoryCode: line.categoryCode,
           quantity: line.quantity,
-          unitPrice: line.product.price,
+          unitPrice: line.unitPrice,
           discount: line.grossAmount - totals.lineTotals[indice],
           lineTotal: totals.lineTotals[indice],
         ),

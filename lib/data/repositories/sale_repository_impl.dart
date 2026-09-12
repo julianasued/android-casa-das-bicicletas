@@ -64,14 +64,23 @@ class SaleRepositoryImpl implements SaleRepository {
         'created_offline': false,
         'items': [
           for (final line in draft.lines)
-            {
-              'product_id': line.product.id,
-              'quantity': line.quantity.toApiString(),
-              // Enviado para conferência: o backend recusa preço divergente do
-              // catálogo, e é assim que o teto de desconto (13.3) não vira
-              // decoração.
-              'unit_price': line.product.price.toApiString(),
-            },
+            if (line.isManual)
+              // V1: categoria e valor negociado. Não há preço de catálogo com
+              // que comparar, e é por isso que o valor manda aqui.
+              {
+                'category': line.categoryCode,
+                'quantity': line.quantity.toApiString(),
+                'unit_price': line.unitPrice.toApiString(),
+              }
+            else
+              {
+                'product_id': line.product!.id,
+                'quantity': line.quantity.toApiString(),
+                // Enviado para conferência: o backend recusa preço divergente
+                // do catálogo, e é assim que o teto de desconto (13.3) não
+                // vira decoração.
+                'unit_price': line.product!.price.toApiString(),
+              },
         ],
       };
 

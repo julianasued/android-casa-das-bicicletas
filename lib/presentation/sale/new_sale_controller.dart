@@ -11,6 +11,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/failure.dart';
+import '../../core/money.dart';
 import '../../core/quantity.dart';
 import '../../core/result.dart';
 import '../../domain/entities/barcode_read.dart';
@@ -43,6 +44,7 @@ class NewSaleController extends ChangeNotifier {
   List<Product> _results = const <Product>[];
   List<ProductCategory> _categories = const <ProductCategory>[];
   String? _categoryCode;
+  bool _categoriesLoaded = false;
   String _query = '';
   Failure? _searchFailure;
   bool _searching = false;
@@ -57,6 +59,9 @@ class NewSaleController extends ChangeNotifier {
   /// Categorias da RF04 (PEÇAS, PNEUS, ÓLEOS), como filtro da busca.
   List<ProductCategory> get categories => _categories;
   String? get categoryCode => _categoryCode;
+
+  /// Já houve resposta do servidor — com ou sem categorias.
+  bool get categoriesLoaded => _categoriesLoaded;
 
   Failure? get searchFailure => _searchFailure;
   bool get isSearching => _searching;
@@ -110,8 +115,11 @@ class NewSaleController extends ChangeNotifier {
     final result = await _catalog.listCategories();
     if (result case Ok(:final value)) {
       _categories = value;
-      notifyListeners();
     }
+    // Marcado mesmo na falha: sem isto a tela de venda gira para sempre num
+    // terminal sem rede, e girar indefinidamente é pior que dizer o que houve.
+    _categoriesLoaded = true;
+    notifyListeners();
   }
 
   /// Filtra por categoria; o mesmo código tocado de novo limpa o filtro.
@@ -161,32 +169,42 @@ class NewSaleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setQuantity(int productId, Quantity quantity) {
-    draft.setQuantity(productId, quantity);
+  /// Lança a linha manual da V1: categoria e valor negociado.
+  void addManual({
+    required ProductCategory category,
+    required Money price,
+    Quantity quantity = const Quantity.units(1),
+  }) {
+    draft.addManual(category: category, price: price, quantity: quantity);
     notifyListeners();
   }
 
-  void increment(int productId) {
-    final line = _lineFor(productId);
-    if (line == null) return;
-    setQuantity(productId, line.quantity + const Quantity.units(1));
+  void setQuantity(int lineId, Quantity quantity) {
+    draft.setQuantity(lineId, quantity);
+    notifyListeners();
   }
 
-  void decrement(int productId) {
-    final line = _lineFor(productId);
+  void increment(int lineId) {
+    final line = _lineFor(lineId);
     if (line == null) return;
-    setQuantity(productId, line.quantity - const Quantity.units(1));
+    setQuantity(lineId, line.quantity + const Quantity.units(1));
   }
 
-  SaleDraftLine? _lineFor(int productId) {
+  void decrement(int lineId) {
+    final line = _lineFor(lineId);
+    if (line == null) return;
+    setQuantity(lineId, line.quantity - const Quantity.units(1));
+  }
+
+  SaleDraftLine? _lineFor(int lineId) {
     for (final line in draft.lines) {
-      if (line.product.id == productId) return line;
+      if (line.id == lineId) return line;
     }
     return null;
   }
 
-  void remove(int productId) {
-    draft.remove(productId);
+  void remove(int lineId) {
+    draft.remove(lineId);
     notifyListeners();
   }
 

@@ -17,6 +17,7 @@ import '../../app/theme.dart';
 import '../../core/failure.dart';
 import '../../core/formatters.dart';
 import '../../core/money.dart';
+import '../../core/quantity.dart';
 import '../../core/result.dart';
 import '../../domain/entities/customer.dart';
 import '../../domain/entities/payment_method.dart';
@@ -95,25 +96,14 @@ class _NewSalePageState extends State<NewSalePage> {
         body: Column(
           children: [
             TerminalBar(session: deps.session, connectivity: deps.connectivity),
-            _SearchField(
-              controller: _searchController,
-              onChanged: _controller.searchDebounced,
-              onSubmitted: _addTypedCode,
-            ),
-            ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) => _CategoryFilter(
-                categories: _controller.categories,
-                selected: _controller.categoryCode,
-                onSelect: _controller.selectCategory,
-              ),
-            ),
             Expanded(
               child: ListenableBuilder(
                 listenable: _controller,
-                builder: (context, _) => _ProductResults(
-                  controller: _controller,
-                  onAdd: _controller.add,
+                builder: (context, _) => _CategoryLauncher(
+                  categories: _controller.categories,
+                  loaded: _controller.categoriesLoaded,
+                  onLaunch: _lancarManual,
+                  onRetry: _controller.loadCategories,
                 ),
               ),
             ),
@@ -172,37 +162,49 @@ class _NewSalePageState extends State<NewSalePage> {
     final destino = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.qr_code_scanner),
-              title: const Text('Leitor de código'),
-              subtitle: const Text('Localiza a venda pelo código do documento'),
-              onTap: () => Navigator.of(context).pop(AppRoutes.scanner),
-            ),
-            ListTile(
-              leading: const Icon(Icons.print),
-              title: const Text('Impressora'),
-              subtitle: const Text('Estado, avanço de papel e teste'),
-              onTap: () =>
-                  Navigator.of(context).pop(AppRoutes.printerDiagnostics),
-            ),
-            ListTile(
-              leading: const Icon(Icons.memory),
-              title: const Text('Teste Elgin M10'),
-              subtitle: const Text('Impressora, leitor e display'),
-              onTap: () => Navigator.of(context).pop(AppRoutes.m10Poc),
-            ),
-            if (temItens) ...[
-              const Divider(height: 1),
+        // Rolável: a folha padrão reserva 9/16 da altura, e a lista já passa
+        // disso na tela do M10 — sem isto, a última opção fica cortada.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               ListTile(
-                leading: const Icon(Icons.delete_outline),
-                title: const Text('Descartar esta venda'),
-                onTap: () => Navigator.of(context).pop('descartar'),
+                leading: const Icon(Icons.search),
+                title: const Text('Buscar produto no catálogo'),
+                subtitle:
+                    const Text('Capacidade futura; a V1 lança por categoria'),
+                onTap: () => Navigator.of(context).pop('catalogo'),
               ),
+              ListTile(
+                leading: const Icon(Icons.qr_code_scanner),
+                title: const Text('Leitor de código'),
+                subtitle:
+                    const Text('Localiza a venda pelo código do documento'),
+                onTap: () => Navigator.of(context).pop(AppRoutes.scanner),
+              ),
+              ListTile(
+                leading: const Icon(Icons.print),
+                title: const Text('Impressora'),
+                subtitle: const Text('Estado, avanço de papel e teste'),
+                onTap: () =>
+                    Navigator.of(context).pop(AppRoutes.printerDiagnostics),
+              ),
+              ListTile(
+                leading: const Icon(Icons.memory),
+                title: const Text('Teste Elgin M10'),
+                subtitle: const Text('Impressora, leitor e display'),
+                onTap: () => Navigator.of(context).pop(AppRoutes.m10Poc),
+              ),
+              if (temItens) ...[
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('Descartar esta venda'),
+                  onTap: () => Navigator.of(context).pop('descartar'),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -210,6 +212,10 @@ class _NewSalePageState extends State<NewSalePage> {
     if (!mounted || destino == null) return;
     if (destino == 'descartar') {
       await _confirmDiscard();
+      return;
+    }
+    if (destino == 'catalogo') {
+      await _buscarNoCatalogo();
       return;
     }
     await navigator.pushNamed(destino);
@@ -245,6 +251,67 @@ class _NewSalePageState extends State<NewSalePage> {
     await deps.auth.logout();
     if (!mounted) return;
     await navigator.pushNamedAndRemoveUntil(AppRoutes.welcome, (_) => false);
+  }
+
+  /// Lança a linha da V1: categoria escolhida, valor digitado.
+  Future<void> _lancarManual(ProductCategory category) async {
+    final lancamento = await showDialog<_ManualEntry>(
+      context: context,
+      builder: (_) => _ManualEntryDialog(category: category),
+    );
+    if (lancamento == null) return;
+
+    _controller.addManual(
+      category: category,
+      price: lancamento.price,
+      quantity: lancamento.quantity,
+    );
+  }
+
+  /// Busca no catálogo — capacidade preservada, fora do caminho principal.
+  ///
+  /// O §6 do fluxo é explícito: na V1 a busca por produto não é o fluxo
+  /// principal. Ela não foi removida, e o leitor de código continua ligado no
+  /// controller: quem tiver catálogo cadastrado usa por aqui.
+  Future<void> _buscarNoCatalogo() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.9,
+        child: SafeArea(
+          child: Column(
+            children: [
+              _SearchField(
+                controller: _searchController,
+                onChanged: _controller.searchDebounced,
+                onSubmitted: _addTypedCode,
+              ),
+              ListenableBuilder(
+                listenable: _controller,
+                builder: (context, _) => _CategoryFilter(
+                  categories: _controller.categories,
+                  selected: _controller.categoryCode,
+                  onSelect: _controller.selectCategory,
+                ),
+              ),
+              Expanded(
+                child: ListenableBuilder(
+                  listenable: _controller,
+                  builder: (context, _) => _ProductResults(
+                    controller: _controller,
+                    onAdd: (product) {
+                      _controller.add(product);
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _pickCustomer() async {
@@ -358,6 +425,212 @@ class _SearchField extends StatelessWidget {
           helperText: 'Bipe a etiqueta ou digite e confirme.',
         ),
       ),
+    );
+  }
+}
+
+/// O caminho principal da V1: escolher a categoria e digitar o valor.
+///
+/// Botões grandes e nada mais competindo por atenção, porque é aqui que a
+/// venda acontece — "PNEUS, R$ 350,00" e pronto. A loja não mantém catálogo, e
+/// exigir produto cadastrado era o que travava o balcão.
+class _CategoryLauncher extends StatelessWidget {
+  const _CategoryLauncher({
+    required this.categories,
+    required this.loaded,
+    required this.onLaunch,
+    required this.onRetry,
+  });
+
+  final List<ProductCategory> categories;
+  final bool loaded;
+  final ValueChanged<ProductCategory> onLaunch;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (!loaded) {
+      return const LoadingView(label: 'Carregando categorias...');
+    }
+    if (categories.isEmpty) {
+      // Sem categorias não há como lançar nada, e girar para sempre esconderia
+      // isso do operador — que num terminal sem rede é o caso mais provável.
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.category_outlined, size: 48, color: theme.disabledColor),
+            const SizedBox(height: 12),
+            Text(
+              'Nenhuma categoria disponível.\n'
+              'Sem elas não há como lançar a venda.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Tentar de novo'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      children: [
+        Text(
+          'O QUE ESTÁ VENDENDO?',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Toque na categoria e informe o valor',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 16),
+        for (final category in categories)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: FilledButton.tonalIcon(
+              onPressed: () => onLaunch(category),
+              icon: const Icon(Icons.add, size: 26),
+              label: Text(category.name.toUpperCase()),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(72),
+                textStyle: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// O que o vendedor digitou para uma linha manual.
+class _ManualEntry {
+  const _ManualEntry({required this.price, required this.quantity});
+
+  final Money price;
+  final Quantity quantity;
+}
+
+/// Valor da linha, com quantidade opcional (§6 do fluxo).
+///
+/// A quantidade começa vazia porque o caso comum é "PEÇAS, R$ 120" — uma venda
+/// inteira, sem contagem. Quem precisar de "2 pneus a R$ 350" informa, e o
+/// total sai da multiplicação.
+class _ManualEntryDialog extends StatefulWidget {
+  const _ManualEntryDialog({required this.category});
+
+  final ProductCategory category;
+
+  @override
+  State<_ManualEntryDialog> createState() => _ManualEntryDialogState();
+}
+
+class _ManualEntryDialogState extends State<_ManualEntryDialog> {
+  final _priceController = TextEditingController();
+  final _quantityController = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _priceController.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    final Money price;
+    try {
+      price = Money.parse(_priceController.text);
+    } on FormatException {
+      setState(() => _error = 'Informe o valor, como 120,00.');
+      return;
+    }
+    if (!price.isPositive) {
+      setState(() => _error = 'O valor precisa ser maior que zero.');
+      return;
+    }
+
+    var quantity = const Quantity.units(1);
+    final digitada = _quantityController.text.trim();
+    if (digitada.isNotEmpty) {
+      try {
+        quantity = Quantity.parse(digitada);
+      } on FormatException {
+        setState(() => _error = 'Quantidade inválida.');
+        return;
+      }
+      if (!quantity.isPositive) {
+        setState(() => _error = 'A quantidade precisa ser maior que zero.');
+        return;
+      }
+    }
+
+    Navigator.of(context).pop(_ManualEntry(price: price, quantity: quantity));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.category.name.toUpperCase()),
+      // Rolável: com o teclado aberto na tela de 5" do M10 sobra pouca altura,
+      // e os dois campos passavam do espaço do diálogo.
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _priceController,
+              autofocus: true,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: 'Valor',
+                prefixText: 'R\$ ',
+                errorText: _error,
+              ),
+              onSubmitted: (_) => _confirm(),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _quantityController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Quantidade (opcional)',
+                helperText: 'Em branco vale 1.',
+              ),
+              onSubmitted: (_) => _confirm(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(onPressed: _confirm, child: const Text('Lançar')),
+      ],
     );
   }
 }
@@ -493,10 +766,10 @@ class _CartPanel extends StatelessWidget {
                           line: draft.lines[i],
                           lineTotal: totals.lineTotals[i],
                           onIncrement: () =>
-                              controller.increment(draft.lines[i].product.id),
+                              controller.increment(draft.lines[i].id),
                           onDecrement: () =>
-                              controller.decrement(draft.lines[i].product.id),
-                          onRemove: () => controller.remove(draft.lines[i].product.id),
+                              controller.decrement(draft.lines[i].id),
+                          onRemove: () => controller.remove(draft.lines[i].id),
                         ),
                     ],
                   ),
@@ -535,7 +808,8 @@ class _CartPanel extends StatelessWidget {
                       label: Text(
                         draft.discountPercentHundredths == 0
                             ? 'Desconto'
-                            : formatPercentDisplay(draft.discountPercentHundredths),
+                            : formatPercentDisplay(
+                                draft.discountPercentHundredths),
                       ),
                     ),
                   ),
@@ -543,7 +817,8 @@ class _CartPanel extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               if (totals.discount.isPositive) ...[
-                _TotalRow(label: 'Subtotal', value: totals.gross.toDisplayString()),
+                _TotalRow(
+                    label: 'Subtotal', value: totals.gross.toDisplayString()),
                 _TotalRow(
                   label: 'Desconto',
                   value: '- ${totals.discount.toDisplayString()}',
@@ -553,7 +828,8 @@ class _CartPanel extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Total', style: Theme.of(context).textTheme.titleMedium),
-                  Text(totals.total.toDisplayString(), style: AppTheme.totalStyle(context)),
+                  Text(totals.total.toDisplayString(),
+                      style: AppTheme.totalStyle(context)),
                 ],
               ),
               const SizedBox(height: 12),
@@ -647,10 +923,10 @@ class _CartLine extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(line.product.name, overflow: TextOverflow.ellipsis),
+              Text(line.label, overflow: TextOverflow.ellipsis),
               Text(
                 '${line.quantity.toDisplayString()} x '
-                '${line.product.price.toDisplayString()}',
+                '${line.unitPrice.toDisplayString()}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],

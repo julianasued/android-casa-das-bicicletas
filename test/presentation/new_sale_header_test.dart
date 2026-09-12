@@ -116,9 +116,18 @@ void main() {
     });
   });
 
-  group('filtro por categoria', () {
+  /// A busca por produto saiu do caminho principal: agora abre pelo menu.
+  Future<void> abrirCatalogo(WidgetTester tester) async {
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buscar produto no catálogo'));
+    await tester.pumpAndSettle();
+  }
+
+  group('filtro por categoria, na busca do catálogo', () {
     testWidgets('mostra as categorias da RF04', (tester) async {
       await montarComoRaiz(tester);
+      await abrirCatalogo(tester);
 
       expect(find.widgetWithText(ChoiceChip, 'Peças'), findsOneWidget);
       expect(find.widgetWithText(ChoiceChip, 'Pneus'), findsOneWidget);
@@ -128,6 +137,7 @@ void main() {
     testWidgets('tocar na categoria filtra a busca no servidor',
         (tester) async {
       final http = await montarComoRaiz(tester);
+      await abrirCatalogo(tester);
 
       await tester.tap(find.widgetWithText(ChoiceChip, 'Pneus'));
       await tester.pumpAndSettle();
@@ -141,6 +151,7 @@ void main() {
     testWidgets('tocar de novo na mesma categoria limpa o filtro',
         (tester) async {
       final http = await montarComoRaiz(tester);
+      await abrirCatalogo(tester);
 
       await tester.tap(find.widgetWithText(ChoiceChip, 'Pneus'));
       await tester.pumpAndSettle();
@@ -164,6 +175,7 @@ void main() {
           return jsonResponse(const {'results': <Object?>[]});
         }),
       );
+      await abrirCatalogo(tester);
 
       // Por nome, e não por tipo: o seletor de forma de pagamento também
       // usa ChoiceChip, e `findsNothing` por tipo passaria a medir a coisa
@@ -178,8 +190,7 @@ void main() {
       await montarComoRaiz(tester);
 
       // Lança um item para haver o que descartar.
-      await tester.tap(find.text('Pneu 26 Cravado').first);
-      await tester.pumpAndSettle();
+      await lancarManual(tester, 'Pneus', '120,00');
 
       await tester.tap(find.byIcon(Icons.menu));
       await tester.pumpAndSettle();
@@ -194,4 +205,21 @@ void main() {
       expect(find.text('NOVA VENDA'), findsOneWidget);
     });
   });
+}
+
+/// Lança uma linha manual — o caminho principal da V1.
+Future<void> lancarManual(
+  WidgetTester tester,
+  String categoria,
+  String valor, {
+  String? quantidade,
+}) async {
+  await tester.tap(find.widgetWithText(FilledButton, categoria.toUpperCase()));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byType(TextField).first, valor);
+  if (quantidade != null) {
+    await tester.enterText(find.byType(TextField).at(1), quantidade);
+  }
+  await tester.tap(find.widgetWithText(FilledButton, 'Lançar'));
+  await tester.pumpAndSettle();
 }
