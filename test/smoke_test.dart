@@ -26,14 +26,31 @@ void main() {
     expect(find.text('Endereço da API'), findsOneWidget);
   });
 
-  testWidgets('terminal configurado pede a senha do aparelho', (tester) async {
+  testWidgets('terminal configurado abre na tela inicial', (tester) async {
     final deps = buildTestDependencies();
     await deps.session.saveConfiguration(deviceId: 'M10-0001', storeId: 1);
 
     await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
     await tester.pumpAndSettle();
 
-    expect(find.text('Abrir terminal'), findsWidgets);
+    // A senha não é pedida de cara: o aparelho fica o dia inteiro nesta tela,
+    // e quem passa por ela é quem vai começar uma venda.
+    expect(find.text('INICIAR VENDA'), findsOneWidget);
+    expect(find.text('M10-0001'), findsOneWidget);
+    expect(find.text('Senha do terminal'), findsNothing);
+  });
+
+  testWidgets('tela inicial leva à senha do aparelho', (tester) async {
+    final deps = buildTestDependencies();
+    await deps.session.saveConfiguration(deviceId: 'M10-0001', storeId: 1);
+
+    await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('INICIAR VENDA'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('INSIRA A SENHA DO TERMINAL'), findsOneWidget);
     expect(find.text('Senha do terminal'), findsOneWidget);
   });
 
@@ -115,7 +132,10 @@ void main() {
     await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
     await tester.pumpAndSettle();
 
-    expect(find.text('Senha do terminal'), findsOneWidget);
+    // Volta ao repouso do terminal: o que não pode é atravessar para a venda
+    // com um token que já venceu.
+    expect(find.text('INICIAR VENDA'), findsOneWidget);
+    expect(find.text('Nova venda'), findsNothing);
   });
 
   testWidgets('o aplicativo é um MaterialApp com o título da loja',

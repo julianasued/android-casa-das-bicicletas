@@ -70,7 +70,7 @@ class _SetupPageState extends State<SetupPage> {
       baseUrl: _baseUrlController.text.trim(),
     );
 
-    await navigator.pushNamedAndRemoveUntil(AppRoutes.terminalLogin, (_) => false);
+    await navigator.pushNamedAndRemoveUntil(AppRoutes.welcome, (_) => false);
   }
 
   @override

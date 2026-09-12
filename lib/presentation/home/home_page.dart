@@ -87,7 +87,7 @@ class HomePage extends StatelessWidget {
     final navigator = Navigator.of(context);
 
     await deps.auth.logout();
-    await navigator.pushNamedAndRemoveUntil(AppRoutes.terminalLogin, (_) => false);
+    await navigator.pushNamedAndRemoveUntil(AppRoutes.welcome, (_) => false);
   }
 }
 

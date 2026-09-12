@@ -1,7 +1,8 @@
 /// Rotas do aplicativo.
 ///
 /// Nomeadas e resolvidas em um lugar só: o fluxo do terminal é linear
-/// (configuração → senha do terminal → seleção do vendedor → venda) e cada
+/// (configuração → tela inicial → senha do terminal → seleção do vendedor →
+/// venda) e cada
 /// tela precisa saber para onde volta quando a sessão cai.
 library;
 
@@ -10,6 +11,9 @@ class AppRoutes {
 
   static const String bootstrap = '/';
   static const String setup = '/configuracao';
+
+  /// Repouso do terminal: sem ninguém autenticado, uma ação só.
+  static const String welcome = '/inicial';
   static const String terminalLogin = '/terminal';
   static const String sellerSelection = '/vendedores';
   static const String home = '/inicio';

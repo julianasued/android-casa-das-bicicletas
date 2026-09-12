@@ -42,7 +42,7 @@ class _BootstrapPageState extends State<BootstrapPage> {
     final session = deps.session;
     final route = switch (session) {
       _ when !session.isConfigured => AppRoutes.setup,
-      _ when !session.hasTerminalAuth => AppRoutes.terminalLogin,
+      _ when !session.hasTerminalAuth => AppRoutes.welcome,
       _ when !session.hasSellerSession => AppRoutes.sellerSelection,
       _ => AppRoutes.home,
     };
