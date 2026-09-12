@@ -45,6 +45,20 @@ class SaleDraftProblem {
   String toString() => message;
 }
 
+/// O que não impede de registrar a venda, mas trava depois, no caixa.
+///
+/// Existe separado de `SaleDraftProblem` porque a diferença é de autoridade: o
+/// problema é recusa deste aplicativo, o aviso é previsão do que o servidor
+/// fará. Tratar os dois igual bloquearia aqui uma venda que o backend aceita.
+class SaleDraftWarning {
+  const SaleDraftWarning(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class SaleDraft {
   SaleDraft({String? uuid, this.paymentMethod = PaymentMethod.dinheiro})
       : uuid = uuid ?? generateUuidV4(),
@@ -121,6 +135,31 @@ class SaleDraft {
     if (paymentMethod.requiresCustomer && customer == null) {
       found.add(
         const SaleDraftProblem('Venda em notinha exige um cliente cadastrado (RF14).'),
+      );
+    }
+    return found;
+  }
+
+  /// Avisos do que o caixa vai recusar, ainda em tempo de corrigir.
+  ///
+  /// A regra é do backend e continua sendo dele: `POST /sales/` **aceita**
+  /// crédito com desconto, e quem recusa é `POST /cash/payments/`, com
+  /// `DISCOUNT_WITH_CREDIT` (13.3). Sem este aviso o desfecho é o pior
+  /// possível: o vendedor imprime o documento 1, o cliente atravessa a loja, e
+  /// só no caixa se descobre que a venda precisa de alteração aprovada por um
+  /// gerente — com o cliente esperando em pé.
+  ///
+  /// É aviso, não trava: a decisão continua no servidor, e a venda pode ser
+  /// registrada assim se for o que o vendedor quer.
+  List<SaleDraftWarning> get warnings {
+    final found = <SaleDraftWarning>[];
+
+    if (paymentMethod == PaymentMethod.credito && discountPercentHundredths > 0) {
+      found.add(
+        const SaleDraftWarning(
+          'O caixa não recebe no crédito uma venda com desconto (13.3). '
+          'Para receber no crédito será preciso solicitar alteração da venda.',
+        ),
       );
     }
     return found;

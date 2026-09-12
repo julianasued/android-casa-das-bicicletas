@@ -63,6 +63,7 @@ class NewSaleController extends ChangeNotifier {
   bool get isSubmitting => _submitting;
   SaleTotals get totals => draft.totals;
   List<SaleDraftProblem> get problems => draft.problems;
+  List<SaleDraftWarning> get warnings => draft.warnings;
   bool get canFinish => draft.canBeFinished && !_submitting;
 
   /// Último código lido — realimenta o operador de que o bipe funcionou.

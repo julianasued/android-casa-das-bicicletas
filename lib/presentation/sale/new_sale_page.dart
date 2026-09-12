@@ -573,6 +573,38 @@ class _CartPanel extends StatelessWidget {
                     ],
                   ),
                 ),
+              // Aviso, não impedimento: o botão de finalizar segue ativo, e a
+              // cor é outra de propósito — vermelho igual ao do problema faria
+              // o vendedor achar que não pode registrar a venda.
+              for (final warning in controller.warnings)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: scheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.warning_amber,
+                        size: 18,
+                        color: scheme.onTertiaryContainer,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          warning.message,
+                          style: TextStyle(
+                            color: scheme.onTertiaryContainer,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 4),
               FilledButton.icon(
                 onPressed: controller.canFinish ? onFinish : null,
@@ -769,21 +801,25 @@ class _PaymentSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final method in PaymentMethod.values)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text(method.label),
-                selected: selected == method,
-                onSelected: (_) => onChanged(method),
-              ),
+    // `Wrap` e não fileira rolável: as cinco formas cabem em duas linhas na
+    // largura do M10, e forma de pagamento escondida atrás de rolagem
+    // horizontal é forma que o vendedor não encontra com o cliente esperando.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final method in PaymentMethod.values)
+          ChoiceChip(
+            label: Text(method.label),
+            selected: selected == method,
+            onSelected: (_) => onChanged(method),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            labelStyle: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
