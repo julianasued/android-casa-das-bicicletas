@@ -27,7 +27,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.receipt_long_outlined).first);
+    // O §7 tirou o botão separado de pendências: tocar no cliente abre a
+    // folha com o nome e o que ele deve, antes de confirmar a escolha.
+    await tester.tap(find.text('João Silva'));
     await tester.pumpAndSettle();
   }
 
@@ -62,7 +64,7 @@ void main() {
   testWidgets('mostra quanto o cliente está devendo', (tester) async {
     await abrirPendencias(tester, comPendencias([pendencia()]));
 
-    expect(find.text('Devendo R\$ 1.500,00'), findsOneWidget);
+    expect(find.text('Total em aberto: R\$ 1.500,00'), findsOneWidget);
     expect(find.textContaining('Venda 10482'), findsOneWidget);
   });
 
@@ -77,7 +79,7 @@ void main() {
       ]),
     );
 
-    expect(find.text('Devendo R\$ 1.500,00'), findsOneWidget);
+    expect(find.text('Total em aberto: R\$ 1.500,00'), findsOneWidget);
   });
 
   testWidgets('avisa quando há pendência vencida', (tester) async {

@@ -134,20 +134,25 @@ class EmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rolável porque nem sempre a área é alta: na Nova Venda esta vista ocupa
+    // a metade de cima da tela, e com mensagem de duas linhas o conteúdo
+    // passava do espaço — no M10 isso vira a faixa listrada de overflow.
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 48, color: Theme.of(context).disabledColor),
-            const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-          ],
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 48, color: Theme.of(context).disabledColor),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -77,7 +77,10 @@ class _SellerSelectionPageState extends State<SellerSelectionPage> {
         // de vender: o servidor devolve o documento pronto de qualquer jeito.
         await deps.auth.currentStore();
         if (!mounted) return;
-        await navigator.pushNamedAndRemoveUntil(AppRoutes.home, (_) => false);
+        // Direto para a venda (§5 e §19): o vendedor selecionou o nome para
+        // vender, não para escolher no menu o que fazer em seguida. As
+        // ferramentas seguem alcançáveis pelo menu do cabeçalho da venda.
+        await navigator.pushNamedAndRemoveUntil(AppRoutes.newSale, (_) => false);
       case Err(:final failure):
         if (failure is UnauthenticatedFailure) {
           await navigator.pushNamedAndRemoveUntil(

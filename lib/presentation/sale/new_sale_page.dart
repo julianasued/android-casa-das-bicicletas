@@ -57,6 +57,7 @@ class _NewSalePageState extends State<NewSalePage> {
       scanner: deps.scanner,
     );
     unawaited(_controller.search(''));
+    unawaited(_controller.loadCategories());
   }
 
   @override
@@ -77,11 +78,19 @@ class _NewSalePageState extends State<NewSalePage> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Nova venda'),
+          title: const Text('NOVA VENDA'),
           leading: IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: _confirmDiscard,
+            icon: const Icon(Icons.menu),
+            tooltip: 'Menu',
+            onPressed: _openMenu,
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Sair',
+              onPressed: _exit,
+            ),
+          ],
         ),
         body: Column(
           children: [
@@ -90,6 +99,14 @@ class _NewSalePageState extends State<NewSalePage> {
               controller: _searchController,
               onChanged: _controller.searchDebounced,
               onSubmitted: _addTypedCode,
+            ),
+            ListenableBuilder(
+              listenable: _controller,
+              builder: (context, _) => _CategoryFilter(
+                categories: _controller.categories,
+                selected: _controller.categoryCode,
+                onSelect: _controller.selectCategory,
+              ),
             ),
             Expanded(
               child: ListenableBuilder(
@@ -100,13 +117,19 @@ class _NewSalePageState extends State<NewSalePage> {
                 ),
               ),
             ),
-            ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) => _CartPanel(
-                controller: _controller,
-                onPickCustomer: _pickCustomer,
-                onEditDiscount: _editDiscount,
-                onFinish: _finish,
+            // `Flexible` e não altura livre: o painel cresce com o que a venda
+            // exige — a composição, o painel da notinha, a lista de problemas —
+            // e na tela de 5" do M10 isso passa do que sobra. Encolhendo, o
+            // conteúdo rola por dentro em vez de sair pela borda.
+            Flexible(
+              child: ListenableBuilder(
+                listenable: _controller,
+                builder: (context, _) => _CartPanel(
+                  controller: _controller,
+                  onPickCustomer: _pickCustomer,
+                  onEditDiscount: _editDiscount,
+                  onFinish: _finish,
+                ),
               ),
             ),
           ],
@@ -134,6 +157,94 @@ class _NewSalePageState extends State<NewSalePage> {
     }
     _searchController.clear();
     await _controller.search('');
+  }
+
+  /// Menu do cabeçalho (§6).
+  ///
+  /// Sobe de baixo em vez de abrir uma gaveta lateral: no M10, segurado com uma
+  /// mão, o canto superior esquerdo é o ponto mais difícil de alcançar da tela —
+  /// o ícone fica lá porque é onde se procura um menu, mas o conteúdo vem para
+  /// onde o polegar está.
+  Future<void> _openMenu() async {
+    final navigator = Navigator.of(context);
+    final temItens = !_controller.draft.isEmpty;
+
+    final destino = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner),
+              title: const Text('Leitor de código'),
+              subtitle: const Text('Localiza a venda pelo código do documento'),
+              onTap: () => Navigator.of(context).pop(AppRoutes.scanner),
+            ),
+            ListTile(
+              leading: const Icon(Icons.print),
+              title: const Text('Impressora'),
+              subtitle: const Text('Estado, avanço de papel e teste'),
+              onTap: () =>
+                  Navigator.of(context).pop(AppRoutes.printerDiagnostics),
+            ),
+            ListTile(
+              leading: const Icon(Icons.memory),
+              title: const Text('Teste Elgin M10'),
+              subtitle: const Text('Impressora, leitor e display'),
+              onTap: () => Navigator.of(context).pop(AppRoutes.m10Poc),
+            ),
+            if (temItens) ...[
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('Descartar esta venda'),
+                onTap: () => Navigator.of(context).pop('descartar'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted || destino == null) return;
+    if (destino == 'descartar') {
+      await _confirmDiscard();
+      return;
+    }
+    await navigator.pushNamed(destino);
+  }
+
+  /// Encerra o turno no aparelho: a próxima venda exige a senha do terminal.
+  Future<void> _exit() async {
+    if (!_controller.draft.isEmpty) {
+      final sair = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Sair com a venda aberta?'),
+          content: const Text(
+            'Os itens lançados serão perdidos. A venda ainda não foi registrada.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Continuar vendendo'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Sair'),
+            ),
+          ],
+        ),
+      );
+      if (!(sair ?? false) || !mounted) return;
+    }
+
+    final deps = context.deps;
+    final navigator = Navigator.of(context);
+    await deps.auth.logout();
+    if (!mounted) return;
+    await navigator.pushNamedAndRemoveUntil(AppRoutes.welcome, (_) => false);
   }
 
   Future<void> _pickCustomer() async {
@@ -170,9 +281,26 @@ class _NewSalePageState extends State<NewSalePage> {
     }
   }
 
+  /// Sai da venda ou, quando não há para onde voltar, apenas a zera.
+  ///
+  /// Depois do §5 a seleção de vendedor entra direto aqui, então esta tela é a
+  /// raiz do fluxo: `pop()` numa pilha vazia fecharia o aplicativo no meio do
+  /// balcão. Quando ela foi empilhada por cima de outra — o menu, por exemplo —
+  /// voltar continua sendo o certo.
+  void _leaveOrReset() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      _controller.discard();
+      _searchController.clear();
+      unawaited(_controller.search(''));
+    }
+  }
+
   Future<void> _confirmDiscard() async {
     if (_controller.draft.isEmpty) {
-      Navigator.of(context).pop();
+      _leaveOrReset();
       return;
     }
 
@@ -196,7 +324,7 @@ class _NewSalePageState extends State<NewSalePage> {
       ),
     );
 
-    if ((discard ?? false) && mounted) Navigator.of(context).pop();
+    if ((discard ?? false) && mounted) _leaveOrReset();
   }
 }
 
@@ -229,6 +357,45 @@ class _SearchField extends StatelessWidget {
           prefixIcon: Icon(Icons.search),
           helperText: 'Bipe a etiqueta ou digite e confirme.',
         ),
+      ),
+    );
+  }
+}
+
+/// Filtro por categoria da RF04 (§6 do fluxo).
+///
+/// Some quando o catálogo ainda não respondeu: uma fileira vazia de chips
+/// ocupa altura na tela de 5" sem dizer nada.
+class _CategoryFilter extends StatelessWidget {
+  const _CategoryFilter({
+    required this.categories,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final List<ProductCategory> categories;
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    if (categories.isEmpty) return const SizedBox.shrink();
+
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: categories.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final category = categories[index];
+          return ChoiceChip(
+            label: Text(category.name),
+            selected: selected == category.code,
+            onSelected: (_) => onSelect(category.code),
+          );
+        },
       ),
     );
   }
@@ -301,7 +468,7 @@ class _CartPanel extends StatelessWidget {
       color: scheme.surface,
       child: SafeArea(
         top: false,
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -339,6 +506,14 @@ class _CartPanel extends StatelessWidget {
                 selected: draft.paymentMethod,
                 onChanged: controller.setPaymentMethod,
               ),
+              if (draft.paymentMethod.requiresCustomer) ...[
+                const SizedBox(height: 8),
+                _NotinhaDetails(
+                  customerName: draft.customer?.name,
+                  itemCount: draft.lineCount,
+                  total: totals.total,
+                ),
+              ],
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -473,6 +648,115 @@ class _CartLine extends StatelessWidget {
           tooltip: 'Remover',
         ),
       ],
+    );
+  }
+}
+
+/// Resumo da venda fiada (§11 do fluxo).
+///
+/// Repete cliente, data, composição e valor num bloco só porque a notinha é o
+/// documento que vai com o cliente e volta na hora de pagar: conferir isso
+/// antes de imprimir é mais barato que descobrir divergência depois.
+///
+/// Prazo e observação aparecem na referência visual, mas não existem no
+/// contrato: `SaleCreateSerializer` aceita apenas uuid, customer_id,
+/// payment_method, discount_percent, created_offline e items, e o `due_date`
+/// do Receivable nasce nulo. Campo que não é enviado a lugar nenhum seria
+/// promessa falsa ao operador, então não estão aqui.
+class _NotinhaDetails extends StatelessWidget {
+  const _NotinhaDetails({
+    required this.customerName,
+    required this.itemCount,
+    required this.total,
+  });
+
+  final String? customerName;
+  final int itemCount;
+  final Money total;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final semCliente = customerName == null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: semCliente
+            ? theme.colorScheme.errorContainer
+            : theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'DETALHES DA NOTINHA',
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1,
+              color: semCliente ? theme.colorScheme.onErrorContainer : null,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _NotinhaRow(
+            label: 'Cliente',
+            value: customerName ?? 'obrigatório — escolha abaixo',
+            emphasis: semCliente,
+          ),
+          _NotinhaRow(label: 'Data', value: formatDate(DateTime.now())),
+          _NotinhaRow(
+            label: 'Composição',
+            value: itemCount == 1 ? '1 item' : '$itemCount itens',
+          ),
+          _NotinhaRow(label: 'Valor', value: total.toDisplayString()),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotinhaRow extends StatelessWidget {
+  const _NotinhaRow({
+    required this.label,
+    required this.value,
+    this.emphasis = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasis;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cor = emphasis ? theme.colorScheme.onErrorContainer : null;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(color: cor),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: cor,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

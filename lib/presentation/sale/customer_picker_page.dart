@@ -74,7 +74,7 @@ class _CustomerPickerPageState extends State<CustomerPickerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cliente')),
+      appBar: AppBar(title: const Text('BUSCAR CLIENTE')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _create,
         icon: const Icon(Icons.person_add),
@@ -120,33 +120,101 @@ class _CustomerPickerPageState extends State<CustomerPickerPage> {
     }
 
     return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
       itemCount: _customers.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final customer = _customers[index];
-        return ListTile(
-          leading: const Icon(Icons.person_outline),
-          title: Text(customer.name),
-          subtitle: Text(
-            [
-              if (customer.document != null) formatDocument(customer.document),
-              if (customer.phone != null) customer.phone!,
-            ].join(' · '),
-          ),
-          // A consulta fica num botão próprio, e não no toque da linha: quem
-          // vende à vista escolhe o cliente e segue, sem passar por uma tela a
-          // mais. Quem vai fiar é que precisa do número (RF15).
-          trailing: IconButton(
-            icon: const Icon(Icons.receipt_long_outlined),
-            tooltip: 'Pendências',
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => _ReceivablesDialog(customer: customer),
-            ),
-          ),
-          onTap: () => Navigator.of(context).pop(customer),
+        final detalhes = [
+          if (customer.document != null) formatDocument(customer.document),
+          if (customer.phone != null) customer.phone!,
+        ].join(' · ');
+
+        return _CustomerButton(
+          name: customer.name,
+          details: detalhes,
+          onTap: () => _open(customer),
         );
       },
+    );
+  }
+
+  /// Abre o cliente com as pendências antes de confirmar (§7).
+  ///
+  /// O vendedor vê **todas** as pendências do cliente na loja (D4, RF15): fiar
+  /// para quem já deve é decisão dele, mas não pode ser decisão às cegas.
+  Future<void> _open(Customer customer) async {
+    final confirmado = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _CustomerSheet(customer: customer),
+    );
+
+    if ((confirmado ?? false) && mounted) {
+      Navigator.of(context).pop(customer);
+    }
+  }
+}
+
+/// Resultado da busca como botão inteiro, no mesmo alvo da lista de vendedores.
+class _CustomerButton extends StatelessWidget {
+  const _CustomerButton({
+    required this.name,
+    required this.details,
+    required this.onTap,
+  });
+
+  final String name;
+  final String details;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(72),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        alignment: Alignment.centerLeft,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: theme.colorScheme.primaryContainer,
+            child: Icon(
+              Icons.person_outline,
+              color: theme.colorScheme.onPrimaryContainer,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                if (details.isNotEmpty)
+                  Text(
+                    details,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, size: 28),
+        ],
+      ),
     );
   }
 }
@@ -253,16 +321,16 @@ class _NewCustomerDialogState extends State<_NewCustomerDialog> {
 /// A pergunta do balcão não é "quais são as pendências" e sim "posso vender
 /// fiado para esta pessoa", então o total devido vem primeiro e grande; a lista
 /// fica abaixo, para quando o vendedor precisa saber de qual venda veio.
-class _ReceivablesDialog extends StatefulWidget {
-  const _ReceivablesDialog({required this.customer});
+class _CustomerSheet extends StatefulWidget {
+  const _CustomerSheet({required this.customer});
 
   final Customer customer;
 
   @override
-  State<_ReceivablesDialog> createState() => _ReceivablesDialogState();
+  State<_CustomerSheet> createState() => _CustomerSheetState();
 }
 
-class _ReceivablesDialogState extends State<_ReceivablesDialog> {
+class _CustomerSheetState extends State<_CustomerSheet> {
   List<Receivable>? _receivables;
   Failure? _failure;
 
@@ -291,15 +359,70 @@ class _ReceivablesDialogState extends State<_ReceivablesDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.customer.name),
-      content: SizedBox(width: 420, child: _content(context)),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Fechar'),
+    final theme = Theme.of(context);
+    final customer = widget.customer;
+    final detalhes = [
+      if (customer.document != null) formatDocument(customer.document),
+      if (customer.phone != null) customer.phone!,
+    ].join(' · ');
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  child: Icon(
+                    Icons.person_outline,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        customer.name,
+                        style: theme.textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      if (detalhes.isNotEmpty)
+                        Text(detalhes, style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Limite de altura para a folha não cobrir a tela quando o cliente
+            // tem muitas pendências; a lista de dentro rola.
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.45,
+              ),
+              child: _content(context),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).pop(true),
+              icon: const Icon(Icons.check),
+              label: const Text('USAR ESTE CLIENTE'),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Escolher outro'),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -350,7 +473,7 @@ class _ReceivablesDialogState extends State<_ReceivablesDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Devendo ${devendo.toDisplayString()}',
+                        'Total em aberto: ${devendo.toDisplayString()}',
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                               color: vencida ? scheme.onErrorContainer : null,
                             ),

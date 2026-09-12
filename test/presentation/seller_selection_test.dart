@@ -116,6 +116,16 @@ void main() {
     expect(enviada.body, const {'seller_id': 15});
   });
 
+  testWidgets('selecionar entra direto na venda (§5 e §19)', (tester) async {
+    await montar(tester, sellers: doisVendedores);
+
+    await tester.tap(find.text('João Silva'));
+    await tester.pumpAndSettle();
+
+    // Não passa mais pelo menu: quem escolheu o nome escolheu para vender.
+    expect(find.text('rota: /venda'), findsOneWidget);
+  });
+
   testWidgets('carrega a lista quando ela não veio da abertura do terminal',
       (tester) async {
     await montar(tester);

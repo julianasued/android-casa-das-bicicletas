@@ -41,6 +41,9 @@ class NewSaleController extends ChangeNotifier {
   final SaleDraft draft = SaleDraft();
 
   List<Product> _results = const <Product>[];
+  List<ProductCategory> _categories = const <ProductCategory>[];
+  String? _categoryCode;
+  String _query = '';
   Failure? _searchFailure;
   bool _searching = false;
   bool _submitting = false;
@@ -50,6 +53,11 @@ class NewSaleController extends ChangeNotifier {
   Timer? _debounce;
 
   List<Product> get results => _results;
+
+  /// Categorias da RF04 (PEÇAS, PNEUS, ÓLEOS), como filtro da busca.
+  List<ProductCategory> get categories => _categories;
+  String? get categoryCode => _categoryCode;
+
   Failure? get searchFailure => _searchFailure;
   bool get isSearching => _searching;
   bool get isSubmitting => _submitting;
@@ -71,11 +79,15 @@ class NewSaleController extends ChangeNotifier {
   }
 
   Future<void> search(String query) async {
+    _query = query;
     _searching = true;
     _searchFailure = null;
     notifyListeners();
 
-    final result = await _catalog.searchProducts(query: query);
+    final result = await _catalog.searchProducts(
+      query: query,
+      categoryCode: _categoryCode,
+    );
 
     _searching = false;
     switch (result) {
@@ -86,6 +98,26 @@ class NewSaleController extends ChangeNotifier {
         _results = const <Product>[];
     }
     notifyListeners();
+  }
+
+  /// Carrega as categorias para os filtros da tela.
+  ///
+  /// Falhar aqui não tira a venda do ar: sem categorias o operador continua
+  /// buscando por nome, SKU ou bipe, que é o caminho principal. Por isso o erro
+  /// não vai para `_searchFailure`, que ocuparia a lista de produtos.
+  Future<void> loadCategories() async {
+    final result = await _catalog.listCategories();
+    if (result case Ok(:final value)) {
+      _categories = value;
+      notifyListeners();
+    }
+  }
+
+  /// Filtra por categoria; o mesmo código tocado de novo limpa o filtro.
+  Future<void> selectCategory(String? code) async {
+    _categoryCode = _categoryCode == code ? null : code;
+    notifyListeners();
+    await search(_query);
   }
 
   void _listenScanner() {
@@ -172,6 +204,16 @@ class NewSaleController extends ChangeNotifier {
   /// Desconto em centésimos de percentual; acima do teto o domínio recusa (13.3).
   void setDiscountPercent(int hundredths) {
     draft.discountPercentHundredths = hundredths;
+    notifyListeners();
+  }
+
+  /// Zera a venda em montagem, sem sair da tela.
+  ///
+  /// Existe porque a Nova Venda virou a raiz do fluxo: descartar não pode mais
+  /// ser `Navigator.pop()`, que ali fecharia o aplicativo.
+  void discard() {
+    draft.clear();
+    draft.paymentMethod = PaymentMethod.dinheiro;
     notifyListeners();
   }
 
