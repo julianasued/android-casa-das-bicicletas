@@ -78,6 +78,14 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
                     Icon(Icons.check_circle, size: 48, color: scheme.primary),
                     const SizedBox(height: 8),
                     Text(
+                      'VENDA FINALIZADA!',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
                       'Venda #${_sale.id}',
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
@@ -98,10 +106,16 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
               ),
             ),
             const SizedBox(height: 12),
+            if (widget.finished.awaitsSync) ...[
+              const _PendingSyncCard(),
+              const SizedBox(height: 12),
+            ],
             _PrintStatusCard(
               printed: _printed,
               message: widget.finished.printFailure?.message,
             ),
+            const SizedBox(height: 12),
+            _DocumentReminderCard(isNotinha: _sale.paymentMethod.requiresCustomer),
             const SizedBox(height: 12),
             Card(
               child: Column(
@@ -167,8 +181,10 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
             ),
             const SizedBox(height: 12),
             TextButton(
+              // A Nova Venda virou a raiz do fluxo depois do §5: "início" é ela,
+              // e não o menu, que saiu do caminho.
               onPressed: () => Navigator.of(context)
-                  .pushNamedAndRemoveUntil(AppRoutes.home, (_) => false),
+                  .pushNamedAndRemoveUntil(AppRoutes.newSale, (_) => false),
               child: const Text('Voltar ao início'),
             ),
           ],
@@ -210,6 +226,80 @@ class _PrintStatusCard extends StatelessWidget {
                   ? 'Entregue ao cliente para levar ao caixa.'
                   : 'A venda está registrada. Resolva a impressora e reimprima.'),
           style: TextStyle(color: printed ? null : scheme.onErrorContainer),
+        ),
+      ),
+    );
+  }
+}
+
+/// A venda está no aparelho e ainda vai subir (§17 do fluxo, RF35).
+///
+/// Sem este aviso a tela diria a mesma coisa para os dois casos — o mesmo ✓
+/// verde de "registrada" —, e o vendedor sairia achando que o servidor já sabe
+/// da venda. Ele não sabe ainda, e é isso que precisa estar escrito.
+class _PendingSyncCard extends StatelessWidget {
+  const _PendingSyncCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      color: scheme.tertiaryContainer,
+      child: ListTile(
+        leading: Icon(Icons.cloud_upload_outlined, color: scheme.onTertiaryContainer),
+        title: Text(
+          'Registrada no terminal, ainda não enviada',
+          style: TextStyle(
+            color: scheme.onTertiaryContainer,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: Text(
+          'Sem rede agora. A venda sobe sozinha quando a conexão voltar, e o '
+          'documento já vale no caixa.',
+          style: TextStyle(color: scheme.onTertiaryContainer),
+        ),
+      ),
+    );
+  }
+}
+
+/// Lembrete do §16: o documento 1 vai com o cliente até o caixa.
+///
+/// Documento 1 não é comprovante de pagamento (RF08) — isso é o documento 2,
+/// que o caixa emite depois de receber. Confundir os dois é o que faz cliente
+/// sair da loja achando que já pagou.
+class _DocumentReminderCard extends StatelessWidget {
+  const _DocumentReminderCard({required this.isNotinha});
+
+  final bool isNotinha;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      color: scheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.assignment_outlined, color: scheme.onSecondaryContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                isNotinha
+                    ? 'Não esqueça de entregar a notinha para o cliente. '
+                        'É com ela que ele acerta a pendência depois.'
+                    : 'Não esqueça de entregar o documento para o cliente. '
+                        'É com ele que o cliente paga no caixa — não é '
+                        'comprovante de pagamento.',
+                style: TextStyle(color: scheme.onSecondaryContainer),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -141,9 +141,9 @@ void main() {
     final http = await montar(tester);
     await lancar(tester, 'Pneus', '350,00');
 
-    await tester.ensureVisible(find.text('Finalizar e imprimir'));
+    await tester.ensureVisible(find.text('GERAR VENDA E IMPRIMIR'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Finalizar e imprimir'));
+    await tester.tap(find.text('GERAR VENDA E IMPRIMIR'));
     await tester.pumpAndSettle();
 
     final enviada = http.requests.lastWhere(

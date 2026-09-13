@@ -119,7 +119,7 @@ void main() {
       // O backend aceita registrar esta venda; travar aqui inventaria regra.
       final botao = tester.widget<FilledButton>(
         find.ancestor(
-          of: find.text('Finalizar e imprimir'),
+          of: find.text('GERAR VENDA E IMPRIMIR'),
           matching: find.byType(FilledButton),
         ),
       );

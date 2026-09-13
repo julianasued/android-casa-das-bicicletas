@@ -333,9 +333,22 @@ class _NewSalePageState extends State<NewSalePage> {
 
   Future<void> _finish() async {
     final navigator = Navigator.of(context);
+
+    // A espera é bloqueante de propósito: entre registrar e o papel sair há
+    // uma ida à rede e uma à impressora, e sem isso o vendedor toca de novo
+    // achando que não funcionou.
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const _PrintingDialog(),
+      ),
+    );
+
     final result = await _controller.finish();
 
     if (!mounted) return;
+    navigator.pop();
 
     switch (result) {
       case Ok(value: final SaleFinished finished):
@@ -423,6 +436,37 @@ class _SearchField extends StatelessWidget {
           labelText: 'Produto, SKU ou código de barras',
           prefixIcon: Icon(Icons.search),
           helperText: 'Bipe a etiqueta ou digite e confirme.',
+        ),
+      ),
+    );
+  }
+}
+
+/// Espera entre o toque e o papel (§15 do fluxo).
+///
+/// Não é dispensável ao toque fora: fechar isto no meio daria ao vendedor a
+/// impressão de que a venda não foi, e ele lançaria tudo de novo.
+class _PrintingDialog extends StatelessWidget {
+  const _PrintingDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return const PopScope(
+      canPop: false,
+      child: AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(height: 8),
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text(
+              'Aguarde a impressão da nota...',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+          ],
         ),
       ),
     );
@@ -828,8 +872,20 @@ class _CartPanel extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Total', style: Theme.of(context).textTheme.titleMedium),
-                  Text(totals.total.toDisplayString(),
-                      style: AppTheme.totalStyle(context)),
+                  const SizedBox(width: 12),
+                  // Encolhe em vez de cortar: com a fonte do sistema ampliada,
+                  // rótulo e valor passam da largura do M10 — e o total é
+                  // justamente o número que o cliente confere de longe.
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        totals.total.toDisplayString(),
+                        style: AppTheme.totalStyle(context),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -890,7 +946,7 @@ class _CartPanel extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.print),
-                label: const Text('Finalizar e imprimir'),
+                label: const Text('GERAR VENDA E IMPRIMIR'),
               ),
             ],
           ),
@@ -1108,10 +1164,19 @@ class _TotalRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Mesmo cuidado do total: com a fonte ampliada, rótulo e valor disputam a
+    // largura, e cortar um valor em dinheiro é pior que reduzi-lo.
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: Theme.of(context).textTheme.bodyMedium),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+        const SizedBox(width: 8),
         Text(value, style: Theme.of(context).textTheme.bodyMedium),
       ],
     );
