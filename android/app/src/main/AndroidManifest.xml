@@ -1,9 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
     <application
         android:label="Casa das Bicicletas"
+        tools:replace="android:label,android:icon"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -28,7 +30,25 @@
             android:value="2"/>
     </application>
 
+    <!--
+        O display do cliente faz `bindService` num serviço de outro pacote, e a
+        partir do Android 11 isso exige declarar o alvo aqui, senão o sistema
+        esconde o serviço e o bind falha calado. Os dois valores são os que o
+        `ConM11.bindService` da E1 usa, conferidos no bytecode do AAR.
+
+        **Necessário, mas não suficiente:** com esta declaração o bind continua
+        falhando no M10 Pro testado ("Falha ao solicitar o vínculo com o serviço
+        da impressora", 10/09/2026), o que aponta para o serviço não existir
+        naquele aparelho. Fica porque sem ela o bind falharia de qualquer forma
+        onde o serviço exista. Ver o §Display do checklist.
+
+        A impressora não precisa disto: chega ao serviço por outro caminho da E1.
+    -->
     <queries>
+        <package android:name="net.nyx.printerservice" />
+        <intent>
+            <action android:name="net.nyx.printerservice.IPrinterService" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

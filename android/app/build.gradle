@@ -20,8 +20,8 @@ android {
 
     defaultConfig {
         applicationId = "br.com.casadasbicicletas.vendas"
-        // O Elgin M10 Pro roda Android 11 (API 30); 24 mantém margem para
-        // outros terminais de teste.
+        // O Elgin M10 Pro roda Android 11 (API 30) e o SDK E1 exige API 21 ou
+        // superior; 24 mantém margem para outros terminais de teste.
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -32,10 +32,53 @@ android {
         release {
             // TODO: substituir pela assinatura de release antes da distribuição.
             signingConfig = signingConfigs.debug
+
+            // O SDK da Elgin é chamado por reflexão em parte do código e resolve
+            // implementações por nome; ofuscar as classes dele quebraria a
+            // impressora só em release, que é o pior momento para descobrir.
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
         }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Armazenamento seguro do token do terminal (§12 da integração com o M10):
+    // EncryptedSharedPreferences com chave no Keystore do Android.
+    implementation "androidx.security:security-crypto:1.1.0-alpha06"
+
+    // SDK da Elgin (pacote oficial e1_v02.34.04). Os arquivos são binários
+    // proprietários, distribuídos com o terminal, e não são versionados — ver
+    // libs/README.md.
+    //
+    // A declaração fica **aqui**, no módulo do aplicativo, e não no plugin:
+    // é este módulo que empacota o APK, e declarar os mesmos AARs nos dois
+    // daria classe duplicada no dex. O plugin os referencia como `compileOnly`
+    // (ver packages/elgin_m10/android/build.gradle).
+    implementation fileTree(dir: "libs", include: ["*.aar"])
+    implementation fileTree(dir: "libs", include: ["*.jar"])
+
+    // Dependências que a documentação oficial do E1 Android e o exemplo oficial
+    // em Flutter do M8/M10 declaram.
+    implementation "androidx.startup:startup-runtime:1.1.0"
+    implementation "androidx.appcompat:appcompat:1.3.0"
+    implementation "org.apache.commons:commons-lang3:3.9"
+    implementation "com.google.code.gson:gson:2.8.6"
+
+    // O E1 gera codigo de barras e QR Code com a ZXing, mas o AAR e local e
+    // declarado por `fileTree` — que nao carrega dependencia transitiva
+    // nenhuma. Sem esta linha, `ImpressaoCodigoBarras` e `ImpressaoQRCode`
+    // morrem em tempo de execucao com
+    // "Failed resolution of: Lcom/google/zxing/BarcodeFormat;", e so quando o
+    // dado passa na validacao — o que fez o defeito se esconder atras do -65.
+    //
+    // Conferido no bytecode do AAR: usa BarcodeFormat, MultiFormatWriter,
+    // EncodeHintType, BitMatrix, WriterException e o ErrorCorrectionLevel do
+    // pacote qrcode. Todas em `core`, e estaveis ha muitas versoes; a 3.4.1
+    // ainda atende API 19+, enquanto a 3.5 exige 24.
+    implementation "com.google.zxing:core:3.4.1"
 }

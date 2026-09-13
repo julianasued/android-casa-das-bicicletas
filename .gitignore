@@ -23,5 +23,17 @@ android/key.properties
 *.jks
 *.keystore
 
+# SDK proprietário da Elgin (ver android/app/libs/README.md)
+android/app/libs/*.aar
+android/app/libs/*.jar
+android/app/libs/*.zip
+
 # Cobertura de testes
 coverage/
+
+# Símbolos de compilação do E1, extraídos do AAR (ver packages/elgin_m10/README.md)
+packages/elgin_m10/android/libs/*.jar
+
+# Gerados pelo Flutter a cada build
+.flutter-plugins-dependencies
+**/android/**/GeneratedPluginRegistrant.java
