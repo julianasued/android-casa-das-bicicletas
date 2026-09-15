@@ -176,62 +176,22 @@ class LogotipoDaLoja extends StatelessWidget {
 
   final bool compacto;
 
+  /// A arte da loja, com símbolo, nome e assinatura numa peça só.
+  ///
+  /// Antes isto era desenhado com widgets — círculo, dois textos e a
+  /// assinatura —, o que era aproximação enquanto não havia a marca. Com a arte
+  /// real, recriá-la em código só introduziria diferença de tipografia.
+  static const String caminho = 'assets/logo/logo-casa-das-bicicletas.png';
+
   @override
   Widget build(BuildContext context) {
-    final diametro = compacto ? 34.0 : 74.0;
-
-    return Column(
-      children: [
-        Container(
-          width: diametro,
-          height: diametro,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Marca.azul,
-            border: Border.all(color: Marca.amarelo, width: 4),
-          ),
-          child: Icon(
-            Icons.pedal_bike,
-            size: diametro * .56,
-            color: Marca.amarelo,
-          ),
-        ),
-        SizedBox(height: compacto ? 4 : 8),
-        Text(
-          'CASA DAS',
-          style: TextStyle(
-            fontSize: compacto ? 13 : 20,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.2,
-            color: Marca.amarelo,
-            shadows: const [
-              Shadow(color: Marca.azul, offset: Offset(-.8, 0)),
-              Shadow(color: Marca.azul, offset: Offset(.8, 0)),
-              Shadow(color: Marca.azul, offset: Offset(0, .8)),
-              Shadow(color: Marca.azul, offset: Offset(0, -.8)),
-            ],
-          ),
-        ),
-        Text(
-          'BICICLETAS',
-          style: TextStyle(
-            fontSize: compacto ? 16 : 24,
-            fontWeight: FontWeight.w800,
-            color: Marca.azul,
-          ),
-        ),
-        if (!compacto)
-          const Text(
-            'PEÇAS PARA MOTOS E BICICLETAS',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 8,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.3,
-              color: Marca.azul,
-            ),
-          ),
-      ],
+    return Image.asset(
+      caminho,
+      // Altura manda, largura acompanha: é o que mantém a proporção da arte
+      // sem depender de eu acertar a largura à mão.
+      height: compacto ? 64 : 130,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.medium,
     );
   }
 }

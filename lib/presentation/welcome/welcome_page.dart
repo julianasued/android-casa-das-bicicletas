@@ -46,10 +46,14 @@ class WelcomePage extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.pedal_bike,
-                          size: 96,
-                          color: theme.colorScheme.primary,
+                        // O símbolo da loja, não o ícone do Material. Aqui
+                        // vai só o símbolo porque o nome já é escrito logo
+                        // abaixo — a arte completa repetiria o texto.
+                        Image.asset(
+                          'assets/logo/logo-icone.png',
+                          height: 96,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.medium,
                         ),
                         const SizedBox(height: 16),
                         Text(
