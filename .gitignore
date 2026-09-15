@@ -37,3 +37,6 @@ packages/elgin_m10/android/libs/*.jar
 # Gerados pelo Flutter a cada build
 .flutter-plugins-dependencies
 **/android/**/GeneratedPluginRegistrant.java
+
+# Referências de design e fluxo: material de trabalho, não código do app.
+fluxo-frontend/
