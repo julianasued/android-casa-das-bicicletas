@@ -80,8 +80,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('SELECIONE O VENDEDOR'), findsOneWidget);
-    expect(find.text('João Silva'), findsOneWidget);
-    expect(find.text('Maria Costa'), findsOneWidget);
+    // O cartão da referência escreve o nome em caixa alta.
+    expect(find.text('JOÃO SILVA'), findsOneWidget);
+    expect(find.text('MARIA COSTA'), findsOneWidget);
   });
 
   testWidgets('sessão completa abre no menu do terminal', (tester) async {

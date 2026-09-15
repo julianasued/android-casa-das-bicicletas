@@ -75,11 +75,11 @@ void main() {
   testWidgets('lista os vendedores habilitados no terminal', (tester) async {
     await montar(tester, sellers: doisVendedores);
 
-    expect(find.text('João Silva'), findsOneWidget);
-    expect(find.text('Maria Costa'), findsOneWidget);
-    // Iniciais no lugar de foto: o cadastro não tem imagem.
-    expect(find.text('JS'), findsOneWidget);
-    expect(find.text('MC'), findsOneWidget);
+    expect(find.text('JOÃO SILVA'), findsOneWidget);
+    expect(find.text('MARIA COSTA'), findsOneWidget);
+    // Um ícone de pessoa por cartão, como na referência — o cadastro não tem
+    // foto e as iniciais saíram com a estilização.
+    expect(find.byIcon(Icons.person), findsNWidgets(3));
   });
 
   testWidgets('não pede senha do vendedor', (tester) async {
@@ -93,21 +93,21 @@ void main() {
   testWidgets('cada vendedor é um alvo confortável no M10', (tester) async {
     await montar(tester, sellers: doisVendedores);
 
-    final botao = tester.getSize(
+    final cartao = tester.getSize(
       find.ancestor(
-        of: find.text('João Silva'),
-        matching: find.byType(OutlinedButton),
+        of: find.text('JOÃO SILVA'),
+        matching: find.byType(InkWell),
       ),
     );
 
-    expect(botao.height, greaterThanOrEqualTo(80));
+    expect(cartao.height, greaterThanOrEqualTo(80));
   });
 
   testWidgets('tocar no nome seleciona o vendedor no servidor',
       (tester) async {
     final http = await montar(tester, sellers: doisVendedores);
 
-    await tester.tap(find.text('Maria Costa'));
+    await tester.tap(find.text('MARIA COSTA'));
     await tester.pumpAndSettle();
 
     final enviada = http.requests.firstWhere(
@@ -119,7 +119,7 @@ void main() {
   testWidgets('selecionar entra direto na venda (§5 e §19)', (tester) async {
     await montar(tester, sellers: doisVendedores);
 
-    await tester.tap(find.text('João Silva'));
+    await tester.tap(find.text('JOÃO SILVA'));
     await tester.pumpAndSettle();
 
     // Não passa mais pelo menu: quem escolheu o nome escolheu para vender.
@@ -130,8 +130,8 @@ void main() {
       (tester) async {
     await montar(tester);
 
-    expect(find.text('João Silva'), findsOneWidget);
-    expect(find.text('Maria Costa'), findsOneWidget);
+    expect(find.text('JOÃO SILVA'), findsOneWidget);
+    expect(find.text('MARIA COSTA'), findsOneWidget);
   });
 
   testWidgets('terminal sem vendedor habilitado explica o que fazer',
@@ -183,6 +183,6 @@ void main() {
     await tester.tap(find.text('Tentar de novo'));
     await tester.pumpAndSettle();
 
-    expect(find.text('João Silva'), findsOneWidget);
+    expect(find.text('JOÃO SILVA'), findsOneWidget);
   });
 }
