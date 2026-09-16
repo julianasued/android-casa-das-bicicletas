@@ -13,6 +13,15 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/fakes.dart';
 
 void main() {
+  /// Toca em algo do painel da venda, que rola: sem trazer para a tela, o
+  /// toque erra em silêncio.
+  Future<void> tocar(WidgetTester tester, Finder alvo) async {
+    await tester.ensureVisible(alvo);
+    await tester.pumpAndSettle();
+    await tester.tap(alvo);
+    await tester.pumpAndSettle();
+  }
+
   Future<void> montarVenda(WidgetTester tester) async {
     final deps = buildTestDependencies(
       transport: RecordingTransport((request) {
@@ -56,42 +65,65 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await lancarManual(tester, 'Peças', '120,00');
+    await lancarManual(tester, 'Peças', '12000');
   }
 
-  Future<void> aplicarDesconto(WidgetTester tester, String percentual) async {
-    await tester.tap(find.byIcon(Icons.percent));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, percentual);
-    await tester.tap(find.text('Aplicar'));
-    await tester.pumpAndSettle();
+  /// Uma tecla do diálogo — escopada de propósito: o teclado da venda, atrás
+  /// da barreira modal, tem as mesmas teclas, e `find.text('8').first` acertava
+  /// a de trás, que não recebe toque.
+  Finder teclaDoDialogo(String digito) => find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text(digito),
+      );
+
+  /// Aplica desconto pelo diálogo da referência: abre, digita o percentual em
+  /// centésimos ("500" = 5,00%) e confirma.
+  Future<void> aplicarDesconto(WidgetTester tester, String centesimos) async {
+    await tocar(tester, find.byIcon(Icons.percent));
+    for (final digito in centesimos.split('')) {
+      await tocar(tester, teclaDoDialogo(digito));
+    }
+    await tocar(tester, find.text('APLICAR DESCONTO'));
   }
 
   group('formas de pagamento (§9)', () {
     testWidgets('as cinco formas estão na tela', (tester) async {
       await montarVenda(tester);
 
-      for (final forma in ['PIX', 'Dinheiro', 'Crédito', 'Débito', 'Notinha']) {
-        expect(
-          find.widgetWithText(ChoiceChip, forma),
-          findsOneWidget,
-          reason: forma,
-        );
+      // A referência põe as cinco em grade, com o rótulo em caixa alta. A
+      // escolhida aparece duas vezes: no botão e no cartão do total, que
+      // mostra a forma da venda — também como na referência.
+      for (final forma in ['PIX', 'DINHEIRO', 'CRÉDITO', 'DÉBITO', 'NOTINHA']) {
+        expect(find.text(forma), findsWidgets, reason: forma);
       }
     });
   });
 
   group('desconto (§10)', () {
-    testWidgets('acima de 5% é recusado antes de ir à rede', (tester) async {
+    testWidgets('acima de 5% o diálogo avisa e não deixa aplicar',
+        (tester) async {
       await montarVenda(tester);
-      await aplicarDesconto(tester, '8');
+      await tocar(tester, find.byIcon(Icons.percent));
+
+      for (final digito in '800'.split('')) {
+        await tocar(tester, teclaDoDialogo(digito));
+      }
+      await tester.ensureVisible(find.text('O desconto máximo é de 5%.'));
+      await tester.pumpAndSettle();
 
       expect(find.text('O desconto máximo é de 5%.'), findsOneWidget);
+      final aplicar = tester.widget<FilledButton>(
+        find.ancestor(
+          of: find.text('APLICAR DESCONTO'),
+          matching: find.byType(FilledButton),
+        ),
+      );
+      expect(aplicar.onPressed, isNull);
     });
 
     testWidgets('5% é aceito e entra no total', (tester) async {
       await montarVenda(tester);
-      await aplicarDesconto(tester, '5');
+      await aplicarDesconto(tester, '500');
 
       // 120,00 menos 5% = 114,00
       expect(find.text('R\$ 114,00'), findsWidgets);
@@ -101,10 +133,9 @@ void main() {
   group('crédito com desconto (§10 / 13.3)', () {
     testWidgets('avisa que o caixa vai recusar', (tester) async {
       await montarVenda(tester);
-      await aplicarDesconto(tester, '5');
+      await aplicarDesconto(tester, '500');
 
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Crédito'));
-      await tester.pumpAndSettle();
+      await tocar(tester, find.text('CRÉDITO'));
 
       expect(find.textContaining('não recebe no crédito'), findsOneWidget);
       expect(find.byIcon(Icons.warning_amber), findsOneWidget);
@@ -112,14 +143,13 @@ void main() {
 
     testWidgets('o aviso não trava a venda', (tester) async {
       await montarVenda(tester);
-      await aplicarDesconto(tester, '5');
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Crédito'));
-      await tester.pumpAndSettle();
+      await aplicarDesconto(tester, '500');
+      await tocar(tester, find.text('CRÉDITO'));
 
       // O backend aceita registrar esta venda; travar aqui inventaria regra.
       final botao = tester.widget<FilledButton>(
         find.ancestor(
-          of: find.text('GERAR VENDA E IMPRIMIR'),
+          of: find.text('CONFERIR E FINALIZAR'),
           matching: find.byType(FilledButton),
         ),
       );
@@ -128,15 +158,12 @@ void main() {
 
     testWidgets('tirar o desconto tira o aviso', (tester) async {
       await montarVenda(tester);
-      await aplicarDesconto(tester, '5');
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Crédito'));
-      await tester.pumpAndSettle();
+      await aplicarDesconto(tester, '500');
+      await tocar(tester, find.text('CRÉDITO'));
       expect(find.textContaining('não recebe no crédito'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.percent));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Sem desconto'));
-      await tester.pumpAndSettle();
+      await tocar(tester, find.byIcon(Icons.percent));
+      await tocar(tester, find.text('SEM DESCONTO'));
 
       expect(find.textContaining('não recebe no crédito'), findsNothing);
     });
@@ -144,27 +171,31 @@ void main() {
     testWidgets('sem desconto, o crédito não avisa nada', (tester) async {
       await montarVenda(tester);
 
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Crédito'));
-      await tester.pumpAndSettle();
+      await tocar(tester, find.text('CRÉDITO'));
 
       expect(find.textContaining('não recebe no crédito'), findsNothing);
     });
   });
 }
 
-/// Lança uma linha manual — o caminho principal da V1.
+/// Lança uma linha: digita o valor no teclado e toca na categoria.
+///
+/// É a ordem do §6 — passo 1 o valor, passo 2 o tipo. `valor` vai em centavos,
+/// como o operador digita: "12000" é R$ 120,00.
 Future<void> lancarManual(
   WidgetTester tester,
   String categoria,
-  String valor, {
-  String? quantidade,
+  String valorEmCentavos, {
+  int quantidade = 1,
 }) async {
-  await tester.tap(find.widgetWithText(FilledButton, categoria.toUpperCase()));
-  await tester.pumpAndSettle();
-  await tester.enterText(find.byType(TextField).first, valor);
-  if (quantidade != null) {
-    await tester.enterText(find.byType(TextField).at(1), quantidade);
+  for (final digito in valorEmCentavos.split('')) {
+    await tester.tap(find.text(digito).first);
+    await tester.pump();
   }
-  await tester.tap(find.widgetWithText(FilledButton, 'Lançar'));
+  for (var i = 1; i < quantidade; i++) {
+    await tester.tap(find.text('+'));
+    await tester.pump();
+  }
+  await tester.tap(find.text(categoria.toUpperCase()));
   await tester.pumpAndSettle();
 }

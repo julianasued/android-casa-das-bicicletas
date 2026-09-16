@@ -11,6 +11,7 @@ abstract interface class CustomerRepository {
     String? document,
     String? phone,
     String? address,
+    String? notes,
   });
 
   /// Pendências do cliente (RF15).

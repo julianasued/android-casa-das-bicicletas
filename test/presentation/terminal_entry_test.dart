@@ -57,7 +57,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('CASA DAS BICICLETAS'), findsOneWidget);
+      // O nome da loja agora vem dentro da arte da marca, não em texto solto.
+      expect(find.byType(Image), findsOneWidget);
       expect(find.text('M10-0001'), findsOneWidget);
       expect(find.text('INICIAR VENDA'), findsOneWidget);
     });

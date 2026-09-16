@@ -77,7 +77,7 @@ void main() {
 
     testWidgets('nenhum cliente encontrado', (tester) async {
       await montar(tester, const CustomerPickerPage(), vazio());
-      expect(find.textContaining('Nenhum cliente encontrado'), findsOneWidget);
+      expect(find.textContaining('BUSCA SEM RESULTADO'), findsOneWidget);
     });
 
     testWidgets('nenhuma categoria para lançar', (tester) async {

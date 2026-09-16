@@ -22,11 +22,13 @@ import '../../core/result.dart';
 import '../../domain/entities/customer.dart';
 import '../../domain/entities/payment_method.dart';
 import '../../domain/entities/product.dart';
+import '../../domain/entities/receivable.dart';
 import '../../domain/rules/sale_draft.dart';
 import '../../domain/rules/sale_pricing.dart';
 import '../../domain/usecases/create_sale.dart';
+import '../../platform/connectivity/connectivity_channel.dart';
+import '../shared/brand.dart';
 import '../shared/feedback.dart';
-import '../shared/terminal_bar.dart';
 import 'customer_picker_page.dart';
 import 'new_sale_controller.dart';
 
@@ -78,54 +80,81 @@ class _NewSalePageState extends State<NewSalePage> {
         if (!didPop) _confirmDiscard();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('NOVA VENDA'),
-          leading: IconButton(
-            icon: const Icon(Icons.menu),
-            tooltip: 'Menu',
-            onPressed: _openMenu,
+        backgroundColor: const Color(0xFFEEF1F8),
+        body: SafeArea(
+          bottom: false,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Duas colunas só quando há espaço nas duas direções: a
+              // referência é de 1280x800, e espremê-la numa tela baixa põe o
+              // teclado e a venda disputando altura que não existe.
+              final compacto =
+                  constraints.maxWidth < 900 || constraints.maxHeight < 640;
+
+              return Column(
+                children: [
+                  _CabecalhoDaVenda(
+                    vendedor: deps.session.seller?.name,
+                    conectividade: deps.connectivity,
+                    compacto: compacto,
+                    onMenu: _openMenu,
+                    onSair: _exit,
+                  ),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: ListenableBuilder(
+                            listenable: _controller,
+                            builder: (context, _) => compacto
+                                ? _CorpoEstreito(
+                                    controller: _controller,
+                                    onLancar: _lancarNaCategoria,
+                                    onPickCustomer: _pickCustomer,
+                                    onEditDiscount: _editDiscount,
+                                    onFinish: _finish,
+                                  )
+                                : _CorpoLargo(
+                                    controller: _controller,
+                                    onLancar: _lancarNaCategoria,
+                                    onPickCustomer: _pickCustomer,
+                                    onEditDiscount: _editDiscount,
+                                    onFinish: _finish,
+                                  ),
+                          ),
+                        ),
+                        // Flutuante só na tela larga, onde o canto inferior
+                        // esquerdo é o teclado. No estreito ali fica o painel
+                        // da venda, e a barra cobriria o botão de finalizar —
+                        // por isso lá ela entra em linha, logo abaixo das
+                        // categorias.
+                        if (!compacto)
+                          Positioned(
+                            left: 20,
+                            bottom: 20,
+                            child: ListenableBuilder(
+                              listenable: _controller,
+                              builder: (context, _) => _BarraDeDesfazer(
+                                linha: _controller.ultimaLinha,
+                                onDesfazer: _controller.desfazerUltimo,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              tooltip: 'Sair',
-              onPressed: _exit,
-            ),
-          ],
-        ),
-        body: Column(
-          children: [
-            TerminalBar(session: deps.session, connectivity: deps.connectivity),
-            Expanded(
-              child: ListenableBuilder(
-                listenable: _controller,
-                builder: (context, _) => _CategoryLauncher(
-                  categories: _controller.categories,
-                  loaded: _controller.categoriesLoaded,
-                  onLaunch: _lancarManual,
-                  onRetry: _controller.loadCategories,
-                ),
-              ),
-            ),
-            // `Flexible` e não altura livre: o painel cresce com o que a venda
-            // exige — a composição, o painel da notinha, a lista de problemas —
-            // e na tela de 5" do M10 isso passa do que sobra. Encolhendo, o
-            // conteúdo rola por dentro em vez de sair pela borda.
-            Flexible(
-              child: ListenableBuilder(
-                listenable: _controller,
-                builder: (context, _) => _CartPanel(
-                  controller: _controller,
-                  onPickCustomer: _pickCustomer,
-                  onEditDiscount: _editDiscount,
-                  onFinish: _finish,
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
+  }
+
+  /// Fecha o lançamento: o valor digitado vira uma linha da categoria tocada.
+  void _lancarNaCategoria(ProductCategory categoria) {
+    _controller.lancarNaCategoria(categoria);
   }
 
   // -------------------------------------------------------------------------
@@ -253,21 +282,6 @@ class _NewSalePageState extends State<NewSalePage> {
     await navigator.pushNamedAndRemoveUntil(AppRoutes.welcome, (_) => false);
   }
 
-  /// Lança a linha da V1: categoria escolhida, valor digitado.
-  Future<void> _lancarManual(ProductCategory category) async {
-    final lancamento = await showDialog<_ManualEntry>(
-      context: context,
-      builder: (_) => _ManualEntryDialog(category: category),
-    );
-    if (lancamento == null) return;
-
-    _controller.addManual(
-      category: category,
-      price: lancamento.price,
-      quantity: lancamento.quantity,
-    );
-  }
-
   /// Busca no catálogo — capacidade preservada, fora do caminho principal.
   ///
   /// O §6 do fluxo é explícito: na V1 a busca por produto não é o fluxo
@@ -315,10 +329,20 @@ class _NewSalePageState extends State<NewSalePage> {
   }
 
   Future<void> _pickCustomer() async {
-    final customer = await Navigator.of(context).push<Customer>(
-      MaterialPageRoute(builder: (_) => const CustomerPickerPage()),
+    // A busca precisa saber se a venda exige cliente: na notinha não existe
+    // "vender sem", e o atalho não deve nem aparecer (RF14).
+    final exige = _controller.draft.paymentMethod.requiresCustomer;
+    final escolha = await Navigator.of(context).push<CustomerSelection>(
+      MaterialPageRoute(
+        builder: (_) => CustomerPickerPage(exigeCliente: exige),
+      ),
     );
-    if (customer != null) _controller.setCustomer(customer);
+    if (escolha != null) {
+      _controller.setCustomer(
+        escolha.customer,
+        receivables: escolha.receivables,
+      );
+    }
   }
 
   Future<void> _editDiscount() async {
@@ -326,6 +350,7 @@ class _NewSalePageState extends State<NewSalePage> {
       context: context,
       builder: (_) => _DiscountDialog(
         initialHundredths: _controller.draft.discountPercentHundredths,
+        subtotal: _controller.totals.gross,
       ),
     );
     if (result != null) _controller.setDiscountPercent(result);
@@ -469,100 +494,6 @@ class _PrintingDialog extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// O caminho principal da V1: escolher a categoria e digitar o valor.
-///
-/// Botões grandes e nada mais competindo por atenção, porque é aqui que a
-/// venda acontece — "PNEUS, R$ 350,00" e pronto. A loja não mantém catálogo, e
-/// exigir produto cadastrado era o que travava o balcão.
-class _CategoryLauncher extends StatelessWidget {
-  const _CategoryLauncher({
-    required this.categories,
-    required this.loaded,
-    required this.onLaunch,
-    required this.onRetry,
-  });
-
-  final List<ProductCategory> categories;
-  final bool loaded;
-  final ValueChanged<ProductCategory> onLaunch;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    if (!loaded) {
-      return const LoadingView(label: 'Carregando categorias...');
-    }
-    if (categories.isEmpty) {
-      // Sem categorias não há como lançar nada, e girar para sempre esconderia
-      // isso do operador — que num terminal sem rede é o caso mais provável.
-      return Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.category_outlined, size: 48, color: theme.disabledColor),
-            const SizedBox(height: 12),
-            Text(
-              'Nenhuma categoria disponível.\n'
-              'Sem elas não há como lançar a venda.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Tentar de novo'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      children: [
-        Text(
-          'O QUE ESTÁ VENDENDO?',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Toque na categoria e informe o valor',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 16),
-        for (final category in categories)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: FilledButton.tonalIcon(
-              onPressed: () => onLaunch(category),
-              icon: const Icon(Icons.add, size: 26),
-              label: Text(category.name.toUpperCase()),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(72),
-                textStyle: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }
@@ -767,7 +698,12 @@ class _CartPanel extends StatelessWidget {
     required this.onPickCustomer,
     required this.onEditDiscount,
     required this.onFinish,
+    this.semItens = false,
   });
+
+  /// No formato largo os itens têm painel próprio, e repeti-los aqui seria
+  /// mostrar a mesma venda duas vezes na mesma tela.
+  final bool semItens;
 
   final NewSaleController controller;
   final VoidCallback onPickCustomer;
@@ -791,7 +727,9 @@ class _CartPanel extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (draft.isEmpty)
+              if (semItens)
+                const SizedBox.shrink()
+              else if (draft.isEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
@@ -832,16 +770,21 @@ class _CartPanel extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 8),
+              if (draft.customer != null) ...[
+                _ClienteEscolhido(
+                  customer: draft.customer!,
+                  receivables: controller.customerReceivables,
+                  onTrocar: onPickCustomer,
+                ),
+                const SizedBox(height: 8),
+              ],
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: _BotaoDeCliente(
+                      temCliente: draft.customer != null,
+                      obrigatorio: draft.paymentMethod.requiresCustomer,
                       onPressed: onPickCustomer,
-                      icon: const Icon(Icons.person_outline),
-                      label: Text(
-                        draft.customer?.name ?? 'Cliente',
-                        overflow: TextOverflow.ellipsis,
-                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -868,25 +811,59 @@ class _CartPanel extends StatelessWidget {
                   value: '- ${totals.discount.toDisplayString()}',
                 ),
               ],
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Total', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(width: 12),
-                  // Encolhe em vez de cortar: com a fonte do sistema ampliada,
-                  // rótulo e valor passam da largura do M10 — e o total é
-                  // justamente o número que o cliente confere de longe.
-                  Flexible(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        totals.total.toDisplayString(),
-                        style: AppTheme.totalStyle(context),
+              // Cartão do total, como na referência: rótulo, a forma escolhida
+              // embaixo, e o valor grande à direita — é o número que o cliente
+              // confere de longe.
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _Venda.cartao,
+                  border: Border.all(color: _Venda.borda),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'TOTAL',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 2,
+                            color: _Venda.rotulo,
+                          ),
+                        ),
+                        Text(
+                          draft.paymentMethod.label.toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: _Venda.rotulo,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          totals.total.toDisplayString(),
+                          style: const TextStyle(
+                            fontSize: 38,
+                            fontWeight: FontWeight.w800,
+                            color: _Venda.painelEscuro,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 12),
               for (final problem in controller.problems)
@@ -939,14 +916,16 @@ class _CartPanel extends StatelessWidget {
                 ),
               const SizedBox(height: 4),
               FilledButton.icon(
-                onPressed: controller.canFinish ? onFinish : null,
+                onPressed: controller.canFinish
+                    ? () => _conferirEFinalizar(context, controller, onFinish)
+                    : null,
                 icon: controller.isSubmitting
                     ? const SizedBox.square(
                         dimension: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.print),
-                label: const Text('GERAR VENDA E IMPRIMIR'),
+                label: const Text('CONFERIR E FINALIZAR'),
               ),
             ],
           ),
@@ -1133,25 +1112,83 @@ class _PaymentSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // `Wrap` e não fileira rolável: as cinco formas cabem em duas linhas na
-    // largura do M10, e forma de pagamento escondida atrás de rolagem
-    // horizontal é forma que o vendedor não encontra com o cliente esperando.
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final method in PaymentMethod.values)
-          ChoiceChip(
-            label: Text(method.label),
-            selected: selected == method,
-            onSelected: (_) => onChanged(method),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            labelStyle: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
+    // Grade fixa, como na referência: as cinco formas visíveis de uma vez.
+    // Forma de pagamento escondida atrás de rolagem é forma que o vendedor não
+    // encontra com o cliente esperando.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final colunas = constraints.maxWidth >= 460 ? 5 : 3;
+        final espaco = 9.0;
+        final largura =
+            (constraints.maxWidth - espaco * (colunas - 1)) / colunas;
+
+        return Wrap(
+          spacing: espaco,
+          runSpacing: espaco,
+          children: [
+            for (final method in PaymentMethod.values)
+              SizedBox(
+                width: largura,
+                child: _BotaoDePagamento(
+                  rotulo: method.label.toUpperCase(),
+                  selecionado: selected == method,
+                  onPressed: () => onChanged(method),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _BotaoDePagamento extends StatelessWidget {
+  const _BotaoDePagamento({
+    required this.rotulo,
+    required this.selecionado,
+    required this.onPressed,
+  });
+
+  final String rotulo;
+  final bool selecionado;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      decoration: BoxDecoration(
+        color: selecionado ? Marca.azul : _Venda.cartao,
+        border: Border.all(
+          color: selecionado ? Marca.azul : _Venda.borda,
+          width: selecionado ? 2 : 1,
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(12),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  rotulo,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .6,
+                    color: selecionado ? Colors.white : _Venda.texto,
+                  ),
+                ),
+              ),
             ),
           ),
-      ],
+        ),
+      ),
     );
   }
 }
@@ -1185,70 +1222,2024 @@ class _TotalRow extends StatelessWidget {
 
 /// Desconto negociado, com o teto do §13.3 aplicado na própria tela.
 class _DiscountDialog extends StatefulWidget {
-  const _DiscountDialog({required this.initialHundredths});
+  const _DiscountDialog({
+    required this.initialHundredths,
+    required this.subtotal,
+  });
 
   final int initialHundredths;
+  final Money subtotal;
 
   @override
   State<_DiscountDialog> createState() => _DiscountDialogState();
 }
 
+/// Desconto da venda (referência tela-desconto).
+///
+/// A referência oferece "DESCONTO RÁPIDO" de 5, 10, 15 e 20% e um campo de
+/// valor em reais. Nenhum dos dois cabe aqui sem quebrar regra existente:
+///
+/// - o teto é 5% (13.3), e 10, 15 ou 20 produziriam uma venda que o servidor
+///   recusa no envio — o vendedor descobriria só ao finalizar;
+/// - `SaleCreateSerializer` aceita `discount_percent`, e não valor: desconto em
+///   reais precisaria de campo novo no backend.
+///
+/// Mantive o desenho — cabeçalho laranja com subtotal e "fica em", atalhos,
+/// teclado, "sem desconto" — e troquei o conteúdo: os atalhos ficam dentro do
+/// teto, e o que se digita é o percentual.
 class _DiscountDialogState extends State<_DiscountDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initialHundredths == 0
-        ? ''
-        : formatPercentApi(widget.initialHundredths),
-  );
-  String? _error;
+  static const _atalhos = [100, 200, 300, 500];
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  late String _digitado =
+      widget.initialHundredths == 0 ? '' : widget.initialHundredths.toString();
+
+  int get _hundredths => int.tryParse(_digitado.isEmpty ? '0' : _digitado) ?? 0;
+
+  bool get _acimaDoTeto => _hundredths > maxDiscountPercentHundredths;
+
+  Money get _desconto =>
+      _acimaDoTeto ? const Money.zero() : widget.subtotal.percent(_hundredths);
+
+  void _digitar(String digito) {
+    if (_digitado.length >= 4) return;
+    setState(() {
+      _digitado = (_digitado + digito).replaceFirst(RegExp(r'^0+(?=\d)'), '');
+    });
   }
 
-  void _confirm() {
-    final parsed = parsePercentHundredths(_controller.text);
-    if (parsed == null) {
-      setState(() => _error = 'Percentual inválido.');
-      return;
-    }
-    if (parsed > maxDiscountPercentHundredths) {
-      // O backend também recusa (13.3); barrar aqui evita a viagem à rede e a
-      // explicação atravessada de um 400 no meio do atendimento.
-      setState(() => _error = 'O desconto máximo é de 5%.');
-      return;
-    }
-    Navigator.of(context).pop(parsed);
+  void _apagar() {
+    if (_digitado.isEmpty) return;
+    setState(() => _digitado = _digitado.substring(0, _digitado.length - 1));
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Desconto da venda'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: 'Percentual',
-              suffixText: '%',
-              errorText: _error,
-              helperText: 'Máximo de 5% sobre o total da venda.',
+    final fica = widget.subtotal - _desconto;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(20),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 660),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              color: const Color(0xFFD97B06),
+              padding: const EdgeInsets.fromLTRB(26, 16, 26, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'DESCONTO DA VENDA',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 2,
+                            color: Colors.white.withValues(alpha: .85),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Subtotal ${widget.subtotal.toDisplayString()}',
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'FICA EM',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.8,
+                          color: Colors.white.withValues(alpha: .85),
+                        ),
+                      ),
+                      Text(
+                        fica.toDisplayString(),
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            onSubmitted: (_) => _confirm(),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(26, 18, 26, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const _RotuloDoDesconto('DESCONTO RÁPIDO'),
+                    const SizedBox(height: 9),
+                    Row(
+                      children: [
+                        for (final (i, atalho) in _atalhos.indexed) ...[
+                          if (i > 0) const SizedBox(width: 10),
+                          Expanded(
+                            child: _AtalhoDeDesconto(
+                              hundredths: atalho,
+                              selecionado: _hundredths == atalho,
+                              onPressed: () => setState(
+                                () => _digitado = atalho.toString(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const _RotuloDoDesconto('OU DIGITE O PERCENTUAL'),
+                    const SizedBox(height: 9),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final teclado = _TecladoDoDesconto(
+                          onDigito: _digitar,
+                          onApagar: _apagar,
+                        );
+                        final mostrador = _MostradorDoPercentual(
+                          hundredths: _hundredths,
+                          acimaDoTeto: _acimaDoTeto,
+                          onSemDesconto: () => Navigator.of(context).pop(0),
+                        );
+
+                        if (constraints.maxWidth < 520) {
+                          return Column(
+                            children: [
+                              mostrador,
+                              const SizedBox(height: 12),
+                              teclado,
+                            ],
+                          );
+                        }
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: mostrador),
+                            const SizedBox(width: 18),
+                            SizedBox(width: 276, child: teclado),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(26, 18, 26, 22),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(66),
+                        side: const BorderSide(color: _Venda.borda, width: 2),
+                      ),
+                      child: const Text(
+                        'CANCELAR',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: _Venda.texto,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 3,
+                    child: FilledButton(
+                      // Acima do teto o botão fica inativo em vez de recusar
+                      // depois: o vendedor vê o limite antes de tentar.
+                      onPressed: _acimaDoTeto || _hundredths == 0
+                          ? null
+                          : () => Navigator.of(context).pop(_hundredths),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(66),
+                        backgroundColor: const Color(0xFFD97B06),
+                      ),
+                      child: const Text(
+                        'APLICAR DESCONTO',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RotuloDoDesconto extends StatelessWidget {
+  const _RotuloDoDesconto(this.texto);
+
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) => Text(
+        texto,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.8,
+          color: _Venda.rotulo,
+        ),
+      );
+}
+
+class _AtalhoDeDesconto extends StatelessWidget {
+  const _AtalhoDeDesconto({
+    required this.hundredths,
+    required this.selecionado,
+    required this.onPressed,
+  });
+
+  final int hundredths;
+  final bool selecionado;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 62,
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor:
+              selecionado ? const Color(0xFFD97B06) : const Color(0xFFF7F9FD),
+          foregroundColor: selecionado ? Colors.white : _Venda.painelEscuro,
+          side: BorderSide(
+            color: selecionado ? const Color(0xFFD97B06) : _Venda.borda,
+          ),
+          padding: EdgeInsets.zero,
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            formatPercentDisplay(hundredths),
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MostradorDoPercentual extends StatelessWidget {
+  const _MostradorDoPercentual({
+    required this.hundredths,
+    required this.acimaDoTeto,
+    required this.onSemDesconto,
+  });
+
+  final int hundredths;
+  final bool acimaDoTeto;
+  final VoidCallback onSemDesconto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          decoration: BoxDecoration(
+            color: _Venda.painelEscuro,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    formatPercentDisplay(hundredths),
+                    style: const TextStyle(
+                      fontSize: 36,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ),
+              Container(width: 3, height: 32, color: Marca.amarelo),
+            ],
+          ),
+        ),
+        if (acimaDoTeto) ...[
+          const SizedBox(height: 8),
+          Text(
+            'O desconto máximo é de 5%.',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
+        const SizedBox(height: 9),
+        OutlinedButton.icon(
+          onPressed: onSemDesconto,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(56),
+            side: const BorderSide(color: _Venda.borda, width: 2),
+          ),
+          icon: const Icon(Icons.close, size: 20, color: _Venda.texto),
+          label: const Text(
+            'SEM DESCONTO',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: _Venda.texto,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TecladoDoDesconto extends StatelessWidget {
+  const _TecladoDoDesconto({required this.onDigito, required this.onApagar});
+
+  final ValueChanged<String> onDigito;
+  final VoidCallback onApagar;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tecla(String rotulo) => Expanded(
+          child: _TeclaDoDesconto(
+              rotulo: rotulo, onPressed: () => onDigito(rotulo)),
+        );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final linha in const [
+          ['1', '2', '3'],
+          ['4', '5', '6'],
+          ['7', '8', '9'],
+        ]) ...[
+          SizedBox(
+            height: 62,
+            child: Row(
+              children: [
+                for (final (i, d) in linha.indexed) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  tecla(d),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        SizedBox(
+          height: 62,
+          child: Row(
+            children: [
+              tecla('0'),
+              const SizedBox(width: 8),
+              tecla('00'),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _TeclaDoDesconto(
+                  icone: Icons.backspace_outlined,
+                  onPressed: onApagar,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TeclaDoDesconto extends StatelessWidget {
+  const _TeclaDoDesconto({
+    this.rotulo,
+    this.icone,
+    required this.onPressed,
+  });
+
+  final String? rotulo;
+  final IconData? icone;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FD),
+        border: Border.all(color: _Venda.borda),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(12),
+          child: Center(
+            child: icone != null
+                ? Icon(icone, size: 22, color: _Venda.texto)
+                : Text(
+                    rotulo!,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: _Venda.painelEscuro,
+                    ),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BotaoDeCliente extends StatelessWidget {
+  const _BotaoDeCliente({
+    required this.temCliente,
+    required this.obrigatorio,
+    required this.onPressed,
+  });
+
+  final bool temCliente;
+  final bool obrigatorio;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final faltando = obrigatorio && !temCliente;
+
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(54),
+        backgroundColor: Colors.white,
+        side: BorderSide(
+          color: faltando ? theme.colorScheme.error : const Color(0xFFDFE4F1),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.person_outline,
+              size: 21,
+              color:
+                  faltando ? theme.colorScheme.error : const Color(0xFF3C4257),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              temCliente ? 'TROCAR' : 'CLIENTE',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: faltando
+                    ? theme.colorScheme.error
+                    : const Color(0xFF3C4257),
+              ),
+            ),
+            if (!temCliente) ...[
+              const SizedBox(width: 6),
+              Text(
+                obrigatorio ? '(obrigatório)' : '(opcional)',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: faltando
+                      ? theme.colorScheme.error
+                      : const Color(0xFF5B6480),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// O cliente da venda, com o que ele já deve na loja (§7, D4, RF15).
+///
+/// O total em aberto aparece aqui, e não só na tela de busca, porque a decisão
+/// de fiar acontece na composição da venda — depois que o vendedor já escolheu
+/// e seguiu montando. Ver o número só uma vez, três telas atrás, não ajuda.
+class _ClienteEscolhido extends StatelessWidget {
+  const _ClienteEscolhido({
+    required this.customer,
+    required this.receivables,
+    required this.onTrocar,
+  });
+
+  final Customer customer;
+  final List<Receivable>? receivables;
+  final VoidCallback onTrocar;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lista = receivables;
+    final devendo = lista?.totalOutstanding;
+    final vencida = lista != null && lista.hasOverdue;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: vencida
+            ? theme.colorScheme.errorContainer
+            : const Color(0xFFF2F4FA),
+        border: Border.all(
+          color: vencida ? theme.colorScheme.error : const Color(0xFFDFE4F1),
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            vencida ? Icons.warning_amber : Icons.person,
+            color: vencida
+                ? theme.colorScheme.onErrorContainer
+                : const Color(0xFF0E1B52),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  customer.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0E1B52),
+                  ),
+                ),
+                if (customer.phone case final String telefone
+                    when telefone.isNotEmpty)
+                  Text(
+                    telefone,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF5B6480),
+                    ),
+                  ),
+                const SizedBox(height: 2),
+                Text(
+                  switch (devendo) {
+                    // Sem consulta é diferente de sem dívida: dizer "nada em
+                    // aberto" quando a rede caiu seria mentir num ponto que
+                    // decide se a venda sai fiada.
+                    null => 'Pendências não consultadas',
+                    final valor when valor.isPositive =>
+                      'Total em aberto: ${valor.toDisplayString()}'
+                          '${vencida ? ' · VENCIDA' : ''}',
+                    _ => 'Nada em aberto',
+                  },
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: vencida
+                        ? theme.colorScheme.onErrorContainer
+                        : const Color(0xFF5B6480),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Trocar cliente',
+            onPressed: onTrocar,
+            icon: const Icon(Icons.edit_outlined, size: 20),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(0),
-          child: const Text('Sem desconto'),
+    );
+  }
+}
+
+/// Tons da tela de venda, vindos da referência.
+class _Venda {
+  const _Venda._();
+
+  static const Color cartao = Colors.white;
+  static const Color borda = Color(0xFFDFE4F1);
+  static const Color painelEscuro = Color(0xFF0E1B52);
+  static const Color rotulo = Color(0xFF5B6480);
+  static const Color texto = Color(0xFF3C4257);
+  static const Color teclaSombra = Color(0xFFDBE1EF);
+  static const Color auxFundo = Color(0xFFE3E8F5);
+  static const Color auxBorda = Color(0xFFCFD7EA);
+  static const Color auxSombra = Color(0xFFC3CBE0);
+  static const Color desarmadoFundo = Color(0xFFF3F5FB);
+  static const Color desarmadoTexto = Color(0xFF8189A1);
+  static const Color desarmadoBorda = Color(0xFFCFD7EA);
+
+  /// Cores por categoria, como na referência. O que não estiver mapeado cai no
+  /// azul da marca — categoria nova no catálogo não pode quebrar a tela.
+  /// Ícone e exemplos por categoria, como na referência. São texto de tela,
+  /// não dado do catálogo — o backend guarda só código e nome.
+  static IconData iconeDaCategoria(String code) => switch (code) {
+        'PECAS' => Icons.settings,
+        'PNEUS' => Icons.trip_origin,
+        'OLEOS' => Icons.water_drop,
+        _ => Icons.sell_outlined,
+      };
+
+  static String exemploDaCategoria(String code) => switch (code) {
+        'PECAS' => 'freios, câmaras, correntes',
+        'PNEUS' => 'aro 26, 29, moto',
+        'OLEOS' => 'lubrificantes, aditivos',
+        _ => '',
+      };
+
+  static Color corDaCategoria(String code) => switch (code) {
+        'PECAS' => const Color(0xFF0020AD),
+        'PNEUS' => const Color(0xFF1D1D2E),
+        'OLEOS' => const Color(0xFFD97B06),
+        _ => Marca.azul,
+      };
+}
+
+/// Cabeçalho azul: menu, título, vendedor e a saída (§6 do fluxo).
+class _CabecalhoDaVenda extends StatelessWidget {
+  const _CabecalhoDaVenda({
+    required this.vendedor,
+    required this.conectividade,
+    required this.compacto,
+    required this.onMenu,
+    required this.onSair,
+  });
+
+  final String? vendedor;
+  final ConnectivityChannel conectividade;
+  final bool compacto;
+  final VoidCallback onMenu;
+  final VoidCallback onSair;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: compacto ? 56 : 66,
+      padding: EdgeInsets.symmetric(horizontal: compacto ? 8 : 20),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF132A9E), Marca.azul],
         ),
-        FilledButton(onPressed: _confirm, child: const Text('Aplicar')),
+      ),
+      child: Row(
+        children: [
+          InkWell(
+            onTap: onMenu,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: compacto ? 40 : 44,
+              height: compacto ? 40 : 44,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .14),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.menu, color: Colors.white, size: 22),
+            ),
+          ),
+          SizedBox(width: compacto ? 10 : 16),
+          // Título e pílula do vendedor disputam a largura no retrato; os
+          // dois encolhem em vez de um empurrar o outro para fora.
+          Flexible(
+            child: Text(
+              'NOVA VENDA',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: compacto ? 17 : 24,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          const Spacer(),
+          // Vendedor e rede na mesma pílula: é o que a barra do terminal
+          // mostrava, no lugar que a referência reserva para o vendedor.
+          Flexible(
+            child: ListenableBuilder(
+              listenable: conectividade,
+              builder: (context, _) => FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Container(
+                  padding: EdgeInsets.only(
+                    left: 6,
+                    right: compacto ? 10 : 16,
+                    top: 5,
+                    bottom: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Marca.amarelo,
+                        ),
+                        child: const Icon(
+                          Icons.person,
+                          size: 17,
+                          color: Marca.azul,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          (vendedor ?? 'VENDEDOR').toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: compacto ? 13 : 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        conectividade.isOnline
+                            ? Icons.cloud_done
+                            : Icons.cloud_off,
+                        size: 16,
+                        color: conectividade.isOnline
+                            ? Colors.white
+                            : Marca.amarelo,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SizedBox(width: compacto ? 4 : 12),
+          InkWell(
+            onTap: onSair,
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: compacto ? 8 : 14,
+                vertical: 12,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.logout, color: Colors.white, size: 20),
+                  if (!compacto) ...[
+                    const SizedBox(width: 9),
+                    const Text(
+                      'SAIR',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Passo 1: o valor digitado e a quantidade.
+class _PainelDoValor extends StatelessWidget {
+  const _PainelDoValor({required this.controller, required this.compacto});
+
+  final NewSaleController controller;
+  final bool compacto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding:
+          EdgeInsets.fromLTRB(compacto ? 14 : 20, 12, compacto ? 14 : 20, 14),
+      decoration: BoxDecoration(
+        color: _Venda.painelEscuro,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'PASSO 1 · DIGITE O VALOR',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: compacto ? 11 : 13,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.6,
+                    color: Colors.white.withValues(alpha: .85),
+                  ),
+                ),
+              ),
+              _BotaoDeQuantidade(
+                rotulo: '−',
+                onPressed: () => controller.mudarQuantidade(-1),
+                compacto: compacto,
+              ),
+              SizedBox(
+                width: compacto ? 56 : 62,
+                child: Text(
+                  'QTD ${controller.quantidade}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: compacto ? 14 : 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              _BotaoDeQuantidade(
+                rotulo: '+',
+                onPressed: () => controller.mudarQuantidade(1),
+                compacto: compacto,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                'R\$',
+                style: TextStyle(
+                  fontSize: compacto ? 17 : 22,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: .8),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    controller.valorDigitado.toDisplayString(symbol: false),
+                    style: TextStyle(
+                      fontSize: compacto ? 36 : 50,
+                      fontWeight: FontWeight.w800,
+                      height: 1.05,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              Container(
+                width: 3,
+                height: compacto ? 30 : 40,
+                color: Marca.amarelo,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BotaoDeQuantidade extends StatelessWidget {
+  const _BotaoDeQuantidade({
+    required this.rotulo,
+    required this.onPressed,
+    required this.compacto,
+  });
+
+  final String rotulo;
+  final VoidCallback onPressed;
+  final bool compacto;
+
+  @override
+  Widget build(BuildContext context) {
+    final lado = compacto ? 40.0 : 48.0;
+
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: lado,
+        height: lado,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .18),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          rotulo,
+          style: TextStyle(
+            fontSize: compacto ? 22 : 26,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Teclado do valor: dígitos, 00 e apagar.
+class _TecladoDoValor extends StatelessWidget {
+  const _TecladoDoValor({required this.controller, required this.compacto});
+
+  final NewSaleController controller;
+  final bool compacto;
+
+  @override
+  Widget build(BuildContext context) {
+    final espaco = compacto ? 8.0 : 10.0;
+
+    Widget tecla(String rotulo) => Expanded(
+          child: _Tecla(
+            rotulo: rotulo,
+            compacto: compacto,
+            onPressed: () => controller.digitar(rotulo),
+          ),
+        );
+
+    return Column(
+      children: [
+        for (final linha in const [
+          ['1', '2', '3'],
+          ['4', '5', '6'],
+          ['7', '8', '9'],
+        ]) ...[
+          Expanded(
+            child: Row(
+              children: [
+                for (final (i, d) in linha.indexed) ...[
+                  if (i > 0) SizedBox(width: espaco),
+                  tecla(d),
+                ],
+              ],
+            ),
+          ),
+          SizedBox(height: espaco),
+        ],
+        Expanded(
+          child: Row(
+            children: [
+              tecla('0'),
+              SizedBox(width: espaco),
+              tecla('00'),
+              SizedBox(width: espaco),
+              Expanded(
+                child: _Tecla(
+                  icone: Icons.backspace_outlined,
+                  compacto: compacto,
+                  auxiliar: true,
+                  onPressed: controller.apagarDigito,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Tecla extends StatelessWidget {
+  const _Tecla({
+    this.rotulo,
+    this.icone,
+    required this.compacto,
+    required this.onPressed,
+    this.auxiliar = false,
+  });
+
+  final String? rotulo;
+  final IconData? icone;
+  final bool compacto;
+  final bool auxiliar;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: auxiliar ? _Venda.auxFundo : _Venda.cartao,
+        border: Border.all(
+          color: auxiliar ? _Venda.auxBorda : _Venda.borda,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: auxiliar ? _Venda.auxSombra : _Venda.teclaSombra,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(14),
+          child: Center(
+            child: icone != null
+                ? Icon(icone, size: compacto ? 22 : 26, color: _Venda.texto)
+                : FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      rotulo!,
+                      style: TextStyle(
+                        fontSize: compacto ? 24 : 32,
+                        fontWeight: FontWeight.w800,
+                        color: _Venda.painelEscuro,
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Passo 2: em que categoria entra o valor digitado.
+///
+/// As categorias ficam apagadas enquanto não há valor. É a ordem da
+/// referência, e ela resolve sozinha um problema real: sem valor, tocar a
+/// categoria não teria o que lançar.
+class _PassoDaCategoria extends StatelessWidget {
+  const _PassoDaCategoria({
+    required this.controller,
+    required this.compacto,
+    required this.onLancar,
+  });
+
+  final NewSaleController controller;
+  final bool compacto;
+  final ValueChanged<ProductCategory> onLancar;
+
+  @override
+  Widget build(BuildContext context) {
+    final armado = controller.podeLancar;
+    final valor = controller.valorDigitado.toDisplayString();
+    final quantidade = controller.quantidade;
+
+    if (!controller.categoriesLoaded) {
+      return const SizedBox(
+        height: 120,
+        child: LoadingView(label: 'Carregando categorias...'),
+      );
+    }
+    if (controller.categories.isEmpty) {
+      return _SemCategorias(onRetry: controller.loadCategories);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          armado
+              ? 'PASSO 2 · $valor${quantidade > 1 ? ' × $quantidade' : ''} — O QUE É ESTE VALOR?'
+              : 'PASSO 2 · DIGITE UM VALOR PARA ESCOLHER O TIPO',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: compacto ? 11 : 13,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.6,
+            color: armado ? Marca.azul : _Venda.rotulo,
+          ),
+        ),
+        SizedBox(height: compacto ? 8 : 12),
+        Row(
+          children: [
+            for (final (i, categoria) in controller.categories.indexed) ...[
+              if (i > 0) SizedBox(width: compacto ? 8 : 12),
+              Expanded(
+                child: _CartaoDeCategoria(
+                  categoria: categoria,
+                  armado: armado,
+                  compacto: compacto,
+                  onPressed: () => onLancar(categoria),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _CartaoDeCategoria extends StatelessWidget {
+  const _CartaoDeCategoria({
+    required this.categoria,
+    required this.armado,
+    required this.compacto,
+    required this.onPressed,
+  });
+
+  final ProductCategory categoria;
+  final bool armado;
+  final bool compacto;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final cor = _Venda.corDaCategoria(categoria.code);
+
+    return Container(
+      height: compacto ? 84 : 126,
+      decoration: BoxDecoration(
+        color: armado ? cor : _Venda.desarmadoFundo,
+        border: Border.all(
+          color: armado ? cor : _Venda.desarmadoBorda,
+          width: 2,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: armado
+            ? const [
+                BoxShadow(color: Color(0x38000000), offset: Offset(0, 7)),
+              ]
+            : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: armado ? onPressed : null,
+          borderRadius: BorderRadius.circular(16),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _Venda.iconeDaCategoria(categoria.code),
+                      size: compacto ? 20 : 26,
+                      color: armado ? Marca.amarelo : const Color(0xFFA8B0C6),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      categoria.name.toUpperCase(),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: compacto ? 18 : 25,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1,
+                        height: 1,
+                        color: armado ? Colors.white : _Venda.desarmadoTexto,
+                      ),
+                    ),
+                    if (_Venda.exemploDaCategoria(categoria.code)
+                        .isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        _Venda.exemploDaCategoria(categoria.code),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: compacto ? 11 : 14,
+                          fontWeight: FontWeight.w600,
+                          color: armado
+                              ? Colors.white.withValues(alpha: .88)
+                              : _Venda.rotulo,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SemCategorias extends StatelessWidget {
+  const _SemCategorias({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _Venda.cartao,
+        border: Border.all(color: _Venda.borda),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Nenhuma categoria disponível.\nSem elas não há como lançar a venda.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _Venda.rotulo),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Tentar de novo'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Corpo em duas colunas, como na referência de 1280x800.
+class _CorpoLargo extends StatelessWidget {
+  const _CorpoLargo({
+    required this.controller,
+    required this.onLancar,
+    required this.onPickCustomer,
+    required this.onEditDiscount,
+    required this.onFinish,
+  });
+
+  final NewSaleController controller;
+  final ValueChanged<ProductCategory> onLancar;
+  final VoidCallback onPickCustomer;
+  final VoidCallback onEditDiscount;
+  final VoidCallback onFinish;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 452,
+            child: Column(
+              children: [
+                _PainelDoValor(controller: controller, compacto: false),
+                const SizedBox(height: 12),
+                Expanded(
+                  child:
+                      _TecladoDoValor(controller: controller, compacto: false),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _PassoDaCategoria(
+                  controller: controller,
+                  compacto: false,
+                  onLancar: onLancar,
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  flex: 2,
+                  child: _ListaDeItens(controller: controller, compacto: false),
+                ),
+                const SizedBox(height: 12),
+                // `Flexible`: o painel cresce com o que a venda exige — notinha,
+                // avisos, desconto — e sem limite ele engolia a lista de itens
+                // acima dele.
+                // Três para dois: o painel precisa caber inteiro, com o
+                // total e o botão de finalizar visíveis sem rolar — a lista de
+                // itens é que rola quando a venda cresce.
+                Expanded(
+                  flex: 3,
+                  child: _CartPanel(
+                    controller: controller,
+                    onPickCustomer: onPickCustomer,
+                    onEditDiscount: onEditDiscount,
+                    onFinish: onFinish,
+                    semItens: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Corpo em coluna única, para o retrato do M10.
+///
+/// A referência é de uma tela larga, com o teclado ao lado da venda. Em
+/// retrato os dois não cabem lado a lado, então a ordem vira a do gesto:
+/// valor, categoria, e a venda logo abaixo, rolando.
+class _CorpoEstreito extends StatelessWidget {
+  const _CorpoEstreito({
+    required this.controller,
+    required this.onLancar,
+    required this.onPickCustomer,
+    required this.onEditDiscount,
+    required this.onFinish,
+  });
+
+  final NewSaleController controller;
+  final ValueChanged<ProductCategory> onLancar;
+  final VoidCallback onPickCustomer;
+  final VoidCallback onEditDiscount;
+  final VoidCallback onFinish;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: Column(
+            children: [
+              _PainelDoValor(controller: controller, compacto: true),
+              const SizedBox(height: 10),
+              _PassoDaCategoria(
+                controller: controller,
+                compacto: true,
+                onLancar: onLancar,
+              ),
+              if (controller.ultimaLinha != null) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _BarraDeDesfazer(
+                    linha: controller.ultimaLinha,
+                    onDesfazer: controller.desfazerUltimo,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Expanded(
+          flex: 5,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            child: _TecladoDoValor(controller: controller, compacto: true),
+          ),
+        ),
+        Flexible(
+          flex: 4,
+          child: _CartPanel(
+            controller: controller,
+            onPickCustomer: onPickCustomer,
+            onEditDiscount: onEditDiscount,
+            onFinish: onFinish,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Os itens já lançados, com a etiqueta da categoria (§6 — composição).
+class _ListaDeItens extends StatelessWidget {
+  const _ListaDeItens({required this.controller, required this.compacto});
+
+  final NewSaleController controller;
+  final bool compacto;
+
+  @override
+  Widget build(BuildContext context) {
+    final draft = controller.draft;
+    final totais = controller.totals;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _Venda.cartao,
+        border: Border.all(color: _Venda.borda),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(18, 11, 12, 11),
+            decoration: const BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFEEF1F8)),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Text(
+                  'ITENS DA VENDA',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 2,
+                    color: _Venda.rotulo,
+                  ),
+                ),
+                const Spacer(),
+                for (final entrada in _contagemPorCategoria(draft.lines))
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _Venda.corDaCategoria(entrada.$1),
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: Text(
+                        '${entrada.$3} ${entrada.$2}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: draft.isEmpty
+                // Rolável: com a fonte do sistema ampliada, ícone mais duas
+                // linhas passam da altura da lista vazia.
+                ? const Center(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.all(20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 42,
+                            color: Color(0xFFC3CADD),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Nenhum item lançado',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: _Venda.rotulo,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Digite o valor e escolha o tipo do produto',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: _Venda.rotulo,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(10),
+                    itemCount: draft.lines.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, indice) {
+                      // De trás para a frente: o que acabou de ser lançado é o
+                      // que o vendedor quer conferir.
+                      final posicao = draft.lines.length - 1 - indice;
+                      return _LinhaDoItem(
+                        line: draft.lines[posicao],
+                        total: totais.lineTotals[posicao],
+                        onRemove: () =>
+                            controller.remove(draft.lines[posicao].id),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Quantas linhas por categoria, na ordem em que apareceram.
+  ///
+  /// Devolve código, contagem e rótulo — o rótulo sai da própria linha, e não
+  /// de uma tabela à parte que poderia divergir do que foi vendido.
+  List<(String, int, String)> _contagemPorCategoria(
+      List<SaleDraftLine> linhas) {
+    final contagem = <String, int>{};
+    final rotulos = <String, String>{};
+    for (final linha in linhas) {
+      contagem[linha.categoryCode] = (contagem[linha.categoryCode] ?? 0) + 1;
+      rotulos[linha.categoryCode] = linha.label.toUpperCase();
+    }
+    return [
+      for (final e in contagem.entries) (e.key, e.value, rotulos[e.key] ?? ''),
+    ];
+  }
+}
+
+class _LinhaDoItem extends StatelessWidget {
+  const _LinhaDoItem({
+    required this.line,
+    required this.total,
+    required this.onRemove,
+  });
+
+  final SaleDraftLine line;
+  final Money total;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final cor = _Venda.corDaCategoria(line.categoryCode);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FD),
+        border: Border.all(color: const Color(0xFFE6EAF4), width: 2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            constraints: const BoxConstraints(minWidth: 84),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: cor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              line.label.toUpperCase(),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              line.quantity == const Quantity.units(1)
+                  ? 'quantidade 1'
+                  : '${line.quantity.toDisplayString()} × '
+                      '${line.unitPrice.toDisplayString()}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: _Venda.rotulo,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            total.toDisplayString(),
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: _Venda.painelEscuro,
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            tooltip: 'Remover',
+            onPressed: onRemove,
+            icon: const Icon(Icons.close, size: 20),
+            color: const Color(0xFFC0392B),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Desfazer o último lançamento, por alguns segundos (referência).
+///
+/// Existe pelo erro mais comum do balcão: digitar o valor e tocar na categoria
+/// errada. Sem isto, a saída é achar a linha na lista e removê-la — o que dá
+/// certo, mas custa atenção num momento em que o cliente está esperando.
+class _BarraDeDesfazer extends StatelessWidget {
+  const _BarraDeDesfazer({required this.linha, required this.onDesfazer});
+
+  final SaleDraftLine? linha;
+  final VoidCallback onDesfazer;
+
+  @override
+  Widget build(BuildContext context) {
+    final atual = linha;
+    if (atual == null) return const SizedBox.shrink();
+
+    return Material(
+      color: _Venda.painelEscuro,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 8,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 12, 14, 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                '${atual.label.toUpperCase()} '
+                '${atual.grossAmount.toDisplayString()} lançado',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Material(
+              color: Marca.amarelo,
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                onTap: onDesfazer,
+                borderRadius: BorderRadius.circular(10),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.undo, size: 18, color: _Venda.painelEscuro),
+                      SizedBox(width: 8),
+                      Text(
+                        'DESFAZER',
+                        style: TextStyle(
+                          color: _Venda.painelEscuro,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Confere a venda antes de imprimir (referência: CONFERIR E FINALIZAR).
+///
+/// O documento 1 sai impresso e vai com o cliente até o caixa: corrigir depois
+/// custa alteração aprovada por gerente (§3.4.5). Uma conferência antes é mais
+/// barata que isso, e é o que a referência coloca entre montar e imprimir.
+Future<void> _conferirEFinalizar(
+  BuildContext context,
+  NewSaleController controller,
+  VoidCallback onFinish,
+) async {
+  final confirmou = await showDialog<bool>(
+    context: context,
+    builder: (_) => _ConferenciaDaVenda(controller: controller),
+  );
+  if (confirmou ?? false) onFinish();
+}
+
+class _ConferenciaDaVenda extends StatelessWidget {
+  const _ConferenciaDaVenda({required this.controller});
+
+  final NewSaleController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final draft = controller.draft;
+    final totais = controller.totals;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(20),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              color: _Venda.painelEscuro,
+              padding: const EdgeInsets.fromLTRB(26, 18, 26, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'CONFIRA ANTES DE IMPRIMIR',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 2,
+                      color: Colors.white.withValues(alpha: .75),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    draft.paymentMethod.label.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(26, 18, 26, 6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < draft.lines.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _LinhaDaConferencia(
+                          line: draft.lines[i],
+                          total: totais.lineTotals[i],
+                        ),
+                      ),
+                    if (totais.discount.isPositive)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFDF0DE),
+                          border: Border.all(color: const Color(0xFFF3D7A8)),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'DESCONTO',
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF8A4B00),
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '- ${totais.discount.toDisplayString()}',
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF8A4B00),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (draft.customer case final cliente?) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Icon(Icons.person_outline, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              cliente.name,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(26, 14, 26, 14),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFFEEF1F8))),
+              ),
+              child: Row(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'TOTAL',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 2,
+                          color: _Venda.rotulo,
+                        ),
+                      ),
+                      Text(
+                        draft.lineCount == 1
+                            ? '1 item'
+                            : '${draft.lineCount} itens',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _Venda.rotulo,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        totais.total.toDisplayString(),
+                        style: const TextStyle(
+                          fontSize: 40,
+                          fontWeight: FontWeight.w800,
+                          color: _Venda.painelEscuro,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(26, 0, 26, 22),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(66),
+                        side: const BorderSide(color: _Venda.borda, width: 2),
+                      ),
+                      child: const Text(
+                        'VOLTAR E CORRIGIR',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: _Venda.texto,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 3,
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(66),
+                        backgroundColor: Marca.laranja,
+                      ),
+                      icon: const Icon(Icons.print),
+                      label: const Text(
+                        'CONFIRMAR E IMPRIMIR',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LinhaDaConferencia extends StatelessWidget {
+  const _LinhaDaConferencia({required this.line, required this.total});
+
+  final SaleDraftLine line;
+  final Money total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _Venda.corDaCategoria(line.categoryCode),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Text(
+            line.label.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              color: _Venda.painelEscuro,
+            ),
+          ),
+        ),
+        if (line.quantity != const Quantity.units(1))
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Text(
+              '${line.quantity.toDisplayString()} × '
+              '${line.unitPrice.toDisplayString()}',
+              style: const TextStyle(fontSize: 14, color: _Venda.rotulo),
+            ),
+          ),
+        Text(
+          total.toDisplayString(),
+          style: const TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+            color: _Venda.painelEscuro,
+          ),
+        ),
       ],
     );
   }

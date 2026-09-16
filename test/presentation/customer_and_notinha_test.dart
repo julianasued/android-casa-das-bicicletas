@@ -6,7 +6,6 @@
 library;
 
 import 'package:casa_das_bicicletas/app/dependencies.dart';
-import 'package:casa_das_bicicletas/domain/entities/customer.dart';
 import 'package:casa_das_bicicletas/presentation/sale/customer_picker_page.dart';
 import 'package:casa_das_bicicletas/presentation/sale/new_sale_page.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +14,15 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/fakes.dart';
 
 void main() {
+  /// Toca em algo do painel da venda, que rola: sem trazer para a tela, o
+  /// toque erra em silêncio.
+  Future<void> tocar(WidgetTester tester, Finder alvo) async {
+    await tester.ensureVisible(alvo);
+    await tester.pumpAndSettle();
+    await tester.tap(alvo);
+    await tester.pumpAndSettle();
+  }
+
   Map<String, Object?> cliente({int id = 77, String nome = 'Maria Oliveira'}) =>
       {
         'id': id,
@@ -43,11 +51,11 @@ void main() {
         return jsonResponse(const <String, Object?>{});
       });
 
-  Future<Customer?> abrirBusca(
+  Future<CustomerSelection?> abrirBusca(
     WidgetTester tester,
     RecordingTransport transport,
   ) async {
-    Customer? escolhido;
+    CustomerSelection? escolhido;
     final deps = buildTestDependencies(transport: transport);
 
     await tester.pumpWidget(
@@ -59,7 +67,7 @@ void main() {
               body: Center(
                 child: ElevatedButton(
                   onPressed: () async {
-                    escolhido = await Navigator.of(context).push<Customer>(
+                    escolhido = await Navigator.of(context).push<CustomerSelection>(
                       MaterialPageRoute(
                         builder: (_) => const CustomerPickerPage(),
                       ),
@@ -124,7 +132,7 @@ void main() {
 
     testWidgets('só devolve o cliente depois de confirmar', (tester) async {
       final transport = comClientes();
-      Customer? escolhido;
+      CustomerSelection? escolhido;
 
       final deps = buildTestDependencies(transport: transport);
       await tester.pumpWidget(
@@ -136,7 +144,7 @@ void main() {
                 body: Center(
                   child: ElevatedButton(
                     onPressed: () async {
-                      escolhido = await Navigator.of(context).push<Customer>(
+                      escolhido = await Navigator.of(context).push<CustomerSelection>(
                         MaterialPageRoute(
                           builder: (_) => const CustomerPickerPage(),
                         ),
@@ -166,7 +174,9 @@ void main() {
       await tester.tap(find.text('USAR ESTE CLIENTE'));
       await tester.pumpAndSettle();
 
-      expect(escolhido?.name, 'Maria Oliveira');
+      expect(escolhido?.customer.name, 'Maria Oliveira');
+      // As pendências vêm junto: a venda não consulta de novo.
+      expect(escolhido?.receivables, isNotNull);
     });
   });
 
@@ -174,13 +184,19 @@ void main() {
     testWidgets('só o nome é obrigatório', (tester) async {
       await abrirBusca(tester, comClientes());
 
-      await tester.tap(find.text('Novo cliente'));
+      await tester.tap(find.text('CADASTRAR CLIENTE'));
       await tester.pumpAndSettle();
 
       // O contrato do backend pede apenas o nome; inventar obrigatoriedade
       // aqui travaria o cadastro com o cliente esperando no balcão.
-      expect(find.text('CPF/CNPJ (opcional)'), findsOneWidget);
-      expect(find.text('Telefone (opcional)'), findsOneWidget);
+      // Os rótulos seguem a referência; a obrigatoriedade segue o contrato:
+      // só o nome é exigido, e o telefone é opcional apesar de a referência o
+      // marcar como obrigatório.
+      expect(find.text('NOME'), findsOneWidget);
+      expect(find.text('TELEFONE (opcional)'), findsOneWidget);
+      expect(find.text('CPF / CNPJ (opcional)'), findsOneWidget);
+      expect(find.text('ENDEREÇO (opcional)'), findsOneWidget);
+      expect(find.text('OBSERVAÇÃO (opcional)'), findsOneWidget);
     });
   });
 
@@ -235,8 +251,7 @@ void main() {
 
       expect(find.text('DETALHES DA NOTINHA'), findsNothing);
 
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Notinha'));
-      await tester.pumpAndSettle();
+      await tocar(tester, find.text('NOTINHA'));
 
       expect(find.text('DETALHES DA NOTINHA'), findsOneWidget);
     });
@@ -244,8 +259,7 @@ void main() {
     testWidgets('sem cliente, o painel cobra o cliente', (tester) async {
       await montarVenda(tester);
 
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Notinha'));
-      await tester.pumpAndSettle();
+      await tocar(tester, find.text('NOTINHA'));
 
       expect(find.textContaining('obrigatório'), findsWidgets);
     });
@@ -253,9 +267,8 @@ void main() {
     testWidgets('mostra composição e valor da venda', (tester) async {
       await montarVenda(tester);
 
-      await lancarManual(tester, 'Pneus', '120,00');
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Notinha'));
-      await tester.pumpAndSettle();
+      await lancarManual(tester, 'Pneus', '12000');
+      await tocar(tester, find.text('NOTINHA'));
 
       expect(find.text('1 item'), findsOneWidget);
       expect(find.text('Composição'), findsOneWidget);
@@ -264,19 +277,24 @@ void main() {
   });
 }
 
-/// Lança uma linha manual — o caminho principal da V1.
+/// Lança uma linha: digita o valor no teclado e toca na categoria.
+///
+/// É a ordem do §6 — passo 1 o valor, passo 2 o tipo. `valor` vai em centavos,
+/// como o operador digita: "12000" é R$ 120,00.
 Future<void> lancarManual(
   WidgetTester tester,
   String categoria,
-  String valor, {
-  String? quantidade,
+  String valorEmCentavos, {
+  int quantidade = 1,
 }) async {
-  await tester.tap(find.widgetWithText(FilledButton, categoria.toUpperCase()));
-  await tester.pumpAndSettle();
-  await tester.enterText(find.byType(TextField).first, valor);
-  if (quantidade != null) {
-    await tester.enterText(find.byType(TextField).at(1), quantidade);
+  for (final digito in valorEmCentavos.split('')) {
+    await tester.tap(find.text(digito).first);
+    await tester.pump();
   }
-  await tester.tap(find.widgetWithText(FilledButton, 'Lançar'));
+  for (var i = 1; i < quantidade; i++) {
+    await tester.tap(find.text('+'));
+    await tester.pump();
+  }
+  await tester.tap(find.text(categoria.toUpperCase()));
   await tester.pumpAndSettle();
 }

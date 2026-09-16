@@ -25,8 +25,13 @@ import 'package:casa_das_bicicletas/data/remote/mappers.dart';
 
 import '../support/fakes.dart';
 
-/// Tela do M10 Pro em pixels lógicos.
-const Size _m10 = Size(360, 640);
+/// Tela do M10 Pro: 10,1" em 1280x800, paisagem.
+///
+/// Era 360x640 aqui, um tamanho que o aparelho não usa — o teste guardava a
+/// tela errada. O segundo tamanho continua valendo como rede de segurança para
+/// telas estreitas (emulador, celular de desenvolvimento), mas não é o alvo.
+const Size _m10 = Size(1280, 800);
+const Size _estreita = Size(360, 640);
 
 void main() {
   RecordingTransport tudoQueAsTelasPedem() => RecordingTransport((request) {
@@ -84,8 +89,9 @@ void main() {
     WidgetTester tester,
     Widget tela, {
     double textScale = 1.0,
+    Size tamanho = _m10,
   }) async {
-    tester.view.physicalSize = _m10;
+    tester.view.physicalSize = tamanho;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -132,7 +138,7 @@ void main() {
     'busca de cliente': () => const CustomerPickerPage(),
   };
 
-  group('cabem no M10 (360x640)', () {
+  group('cabem no M10 (1280x800)', () {
     for (final entrada in telas.entries) {
       testWidgets('${entrada.key} não estoura', (tester) async {
         expect(await renderizar(tester, entrada.value()), isNull);
@@ -160,6 +166,28 @@ void main() {
           tester,
           SaleFinishedPage(finished: desfecho()),
           textScale: 1.3,
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('cabem também em tela estreita (360x640)', () {
+    for (final entrada in telas.entries) {
+      testWidgets('${entrada.key} não estoura', (tester) async {
+        expect(
+          await renderizar(tester, entrada.value(), tamanho: _estreita),
+          isNull,
+        );
+      });
+    }
+
+    testWidgets('venda finalizada não estoura', (tester) async {
+      expect(
+        await renderizar(
+          tester,
+          SaleFinishedPage(finished: desfecho()),
+          tamanho: _estreita,
         ),
         isNull,
       );

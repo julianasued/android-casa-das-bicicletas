@@ -18,6 +18,7 @@ import '../../domain/entities/barcode_read.dart';
 import '../../domain/entities/customer.dart';
 import '../../domain/entities/payment_method.dart';
 import '../../domain/entities/product.dart';
+import '../../domain/entities/receivable.dart';
 import '../../domain/ports/barcode_scanner.dart';
 import '../../domain/repositories/catalog_repository.dart';
 import '../../domain/rules/sale_draft.dart';
@@ -122,6 +123,96 @@ class NewSaleController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // -------------------------------------------------------------------------
+  // Lançamento: primeiro o valor, depois a categoria (§6 do fluxo)
+  // -------------------------------------------------------------------------
+
+  String _digitado = '';
+  int _quantidade = 1;
+
+  /// Centavos digitados, como texto — nunca `double`.
+  ///
+  /// O buffer guarda os dígitos na ordem em que foram tocados e só vira
+  /// `Money` na hora de lançar. É o que mantém "12" significando R$ 0,12 e
+  /// "1200" significando R$ 12,00 sem passar por ponto flutuante em momento
+  /// algum (§6 — "não usar float").
+  String get digitado => _digitado;
+
+  int get quantidade => _quantidade;
+
+  Money get valorDigitado =>
+      Money.fromCents(int.tryParse(_digitado.isEmpty ? '0' : _digitado) ?? 0);
+
+  /// Só dá para escolher a categoria depois de haver valor — é a ordem da
+  /// referência, e o que impede lançar linha de zero real.
+  bool get podeLancar => valorDigitado.isPositive;
+
+  void digitar(String digito) {
+    // Teto de sete dígitos: R$ 99.999,99 já é muito acima de qualquer venda
+    // de balcão, e sem limite o número sai da tela.
+    if (_digitado.length + digito.length > 7) return;
+    _digitado = (_digitado + digito).replaceFirst(RegExp(r'^0+(?=\d)'), '');
+    notifyListeners();
+  }
+
+  void apagarDigito() {
+    if (_digitado.isEmpty) return;
+    _digitado = _digitado.substring(0, _digitado.length - 1);
+    notifyListeners();
+  }
+
+  void limparDigitado() {
+    _digitado = '';
+    _quantidade = 1;
+    notifyListeners();
+  }
+
+  void mudarQuantidade(int delta) {
+    _quantidade = (_quantidade + delta).clamp(1, 99);
+    notifyListeners();
+  }
+
+  /// Última linha lançada, enquanto der para desfazer.
+  ///
+  /// Some sozinha depois de alguns segundos: passado isso, o vendedor já
+  /// seguiu para o próximo item, e um "desfazer" que apaga algo lançado há um
+  /// minuto é pior do que não ter desfazer nenhum.
+  SaleDraftLine? _ultimaLinha;
+  Timer? _janelaDeDesfazer;
+
+  SaleDraftLine? get ultimaLinha => _ultimaLinha;
+
+  /// Fecha o lançamento: o valor digitado vira uma linha daquela categoria.
+  SaleDraftLine? lancarNaCategoria(ProductCategory category) {
+    if (!podeLancar) return null;
+
+    final linha = draft.addManual(
+      category: category,
+      price: valorDigitado,
+      quantity: Quantity.units(_quantidade),
+    );
+    _digitado = '';
+    _quantidade = 1;
+    _ultimaLinha = linha;
+    _janelaDeDesfazer?.cancel();
+    _janelaDeDesfazer = Timer(const Duration(seconds: 8), () {
+      _ultimaLinha = null;
+      notifyListeners();
+    });
+    notifyListeners();
+    return linha;
+  }
+
+  /// Desfaz o último lançamento.
+  void desfazerUltimo() {
+    final linha = _ultimaLinha;
+    if (linha == null) return;
+    _janelaDeDesfazer?.cancel();
+    _ultimaLinha = null;
+    draft.remove(linha.id);
+    notifyListeners();
+  }
+
   /// Filtra por categoria; o mesmo código tocado de novo limpa o filtro.
   Future<void> selectCategory(String? code) async {
     _categoryCode = _categoryCode == code ? null : code;
@@ -215,8 +306,18 @@ class NewSaleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setCustomer(Customer? customer) {
+  /// Pendências do cliente escolhido, como vieram da busca.
+  ///
+  /// `null` quando não há cliente ou não deu para consultar — que é diferente
+  /// de lista vazia, e a tela precisa dessa diferença para não dizer "não deve
+  /// nada" quando na verdade não perguntou.
+  List<Receivable>? _customerReceivables;
+
+  List<Receivable>? get customerReceivables => _customerReceivables;
+
+  void setCustomer(Customer? customer, {List<Receivable>? receivables}) {
     draft.customer = customer;
+    _customerReceivables = customer == null ? null : receivables;
     notifyListeners();
   }
 
@@ -257,6 +358,7 @@ class NewSaleController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _janelaDeDesfazer?.cancel();
     _debounce?.cancel();
     unawaited(_scannerSubscription?.cancel());
     unawaited(_scanner.stop());

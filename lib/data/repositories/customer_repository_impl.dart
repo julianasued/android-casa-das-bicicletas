@@ -62,6 +62,7 @@ class CustomerRepositoryImpl implements CustomerRepository {
     String? document,
     String? phone,
     String? address,
+    String? notes,
   }) async {
     final response = await _api.post(
       ApiEndpoints.customers,
@@ -70,6 +71,7 @@ class CustomerRepositoryImpl implements CustomerRepository {
         if (document != null && document.trim().isNotEmpty) 'document': document.trim(),
         if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
         if (address != null && address.trim().isNotEmpty) 'address': address.trim(),
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
       },
       // §1.5 — o cadastro nasce no balcão, onde o toque duplo no botão é comum.
       idempotencyKey: ApiClient.newIdempotencyKey(),

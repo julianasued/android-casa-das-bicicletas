@@ -190,7 +190,7 @@ void main() {
       await montarComoRaiz(tester);
 
       // Lança um item para haver o que descartar.
-      await lancarManual(tester, 'Pneus', '120,00');
+      await lancarManual(tester, 'Pneus', '12000');
 
       await tester.tap(find.byIcon(Icons.menu));
       await tester.pumpAndSettle();
@@ -207,19 +207,24 @@ void main() {
   });
 }
 
-/// Lança uma linha manual — o caminho principal da V1.
+/// Lança uma linha: digita o valor no teclado e toca na categoria.
+///
+/// É a ordem do §6 — passo 1 o valor, passo 2 o tipo. `valor` vai em centavos,
+/// como o operador digita: "12000" é R$ 120,00.
 Future<void> lancarManual(
   WidgetTester tester,
   String categoria,
-  String valor, {
-  String? quantidade,
+  String valorEmCentavos, {
+  int quantidade = 1,
 }) async {
-  await tester.tap(find.widgetWithText(FilledButton, categoria.toUpperCase()));
-  await tester.pumpAndSettle();
-  await tester.enterText(find.byType(TextField).first, valor);
-  if (quantidade != null) {
-    await tester.enterText(find.byType(TextField).at(1), quantidade);
+  for (final digito in valorEmCentavos.split('')) {
+    await tester.tap(find.text(digito).first);
+    await tester.pump();
   }
-  await tester.tap(find.widgetWithText(FilledButton, 'Lançar'));
+  for (var i = 1; i < quantidade; i++) {
+    await tester.tap(find.text('+'));
+    await tester.pump();
+  }
+  await tester.tap(find.text(categoria.toUpperCase()));
   await tester.pumpAndSettle();
 }
