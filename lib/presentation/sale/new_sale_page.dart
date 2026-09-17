@@ -787,17 +787,11 @@ class _CartPanel extends StatelessWidget {
                       onPressed: onPickCustomer,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: _BotaoDeDesconto(
+                      percentual: draft.discountPercentHundredths,
                       onPressed: onEditDiscount,
-                      icon: const Icon(Icons.percent),
-                      label: Text(
-                        draft.discountPercentHundredths == 0
-                            ? 'Desconto'
-                            : formatPercentDisplay(
-                                draft.discountPercentHundredths),
-                      ),
                     ),
                   ),
                 ],
@@ -1155,21 +1149,25 @@ class _BotaoDePagamento extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 56,
-      decoration: BoxDecoration(
-        color: selecionado ? Marca.azul : _Venda.cartao,
-        border: Border.all(
-          color: selecionado ? Marca.azul : _Venda.borda,
-          width: selecionado ? 2 : 1,
-        ),
-        borderRadius: BorderRadius.circular(12),
+    final forma = RoundedRectangleBorder(
+      side: BorderSide(
+        color: selecionado ? Marca.azul : _Venda.borda,
+        width: selecionado ? 2 : 1,
       ),
+      borderRadius: BorderRadius.circular(_Toque.raio),
+    );
+
+    // A borda vai no `Material`, e não num `Container` por fora: assim o
+    // `InkWell` ocupa os 56 inteiros em vez de nascer já descontado da borda —
+    // dois pontos a menos de alvo de toque em cada forma de pagamento.
+    return SizedBox(
+      height: _Toque.altura,
       child: Material(
-        color: Colors.transparent,
+        color: selecionado ? Marca.azul : _Venda.cartao,
+        shape: forma,
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(12),
+          customBorder: forma,
           child: Center(
             child: FittedBox(
               fit: BoxFit.scaleDown,
@@ -1178,7 +1176,7 @@ class _BotaoDePagamento extends StatelessWidget {
                 child: Text(
                   rotulo,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: _Toque.rotulo,
                     fontWeight: FontWeight.w800,
                     letterSpacing: .6,
                     color: selecionado ? Colors.white : _Venda.texto,
@@ -1694,6 +1692,41 @@ class _TeclaDoDesconto extends StatelessWidget {
   }
 }
 
+/// Medidas dos controles que o vendedor toca nesta tela.
+///
+/// Uma fonte só para altura, raio e tipografia: teclas do teclado, formas de
+/// pagamento, CLIENTE e DESCONTO. Cada um tinha a sua antes — o DESCONTO vinha
+/// com o `OutlinedButton` do tema, que é pílula verde de raio 20, e destoava do
+/// CLIENTE ao lado.
+class _Toque {
+  const _Toque._();
+
+  /// Altura mínima de qualquer alvo de toque. O M10 é operado com o dedo, em
+  /// pé, e alvo curto aqui custa venda lançada errada.
+  static const double altura = 56;
+
+  /// Raio único, o das teclas da referência.
+  static const double raio = 14;
+
+  /// Rótulo dos botões de ação e de pagamento.
+  static const double rotulo = 18;
+
+  /// Dígitos do teclado — o que se lê de relance enquanto se digita.
+  static const double digito = 26;
+
+  /// Casca comum de CLIENTE e DESCONTO: mesma altura, mesmo raio, mesma borda.
+  static ButtonStyle acao({required bool alerta, required ColorScheme cores}) =>
+      OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(altura),
+        backgroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        side: BorderSide(color: alerta ? cores.error : _Venda.borda),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(raio),
+        ),
+      );
+}
+
 class _BotaoDeCliente extends StatelessWidget {
   const _BotaoDeCliente({
     required this.temCliente,
@@ -1710,36 +1743,25 @@ class _BotaoDeCliente extends StatelessWidget {
     final theme = Theme.of(context);
     final faltando = obrigatorio && !temCliente;
 
+    final cor = faltando ? theme.colorScheme.error : _Venda.texto;
+
     return OutlinedButton(
       onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size.fromHeight(54),
-        backgroundColor: Colors.white,
-        side: BorderSide(
-          color: faltando ? theme.colorScheme.error : const Color(0xFFDFE4F1),
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
+      style: _Toque.acao(alerta: faltando, cores: theme.colorScheme),
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.person_outline,
-              size: 21,
-              color:
-                  faltando ? theme.colorScheme.error : const Color(0xFF3C4257),
-            ),
+            Icon(Icons.person_outline, size: 22, color: cor),
             const SizedBox(width: 10),
             Text(
               temCliente ? 'TROCAR' : 'CLIENTE',
               style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: faltando
-                    ? theme.colorScheme.error
-                    : const Color(0xFF3C4257),
+                fontSize: _Toque.rotulo,
+                fontWeight: FontWeight.w800,
+                letterSpacing: .6,
+                color: cor,
               ),
             ),
             if (!temCliente) ...[
@@ -1749,12 +1771,54 @@ class _BotaoDeCliente extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: faltando
-                      ? theme.colorScheme.error
-                      : const Color(0xFF5B6480),
+                  color: faltando ? theme.colorScheme.error : _Venda.rotulo,
                 ),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Desconto da venda, gêmeo do botão de cliente.
+///
+/// Mesma casca do CLIENTE ao lado — altura, raio, borda, caixa e peso do texto.
+/// Com desconto aplicado, ícone e rótulo vão para o azul da marca; era o verde
+/// do tema do Material que aparecia aqui, que não é cor deste PDV.
+class _BotaoDeDesconto extends StatelessWidget {
+  const _BotaoDeDesconto({required this.percentual, required this.onPressed});
+
+  /// Desconto em centésimos de ponto percentual, como no rascunho da venda.
+  final int percentual;
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final aplicado = percentual != 0;
+    final cor = aplicado ? Marca.azul : _Venda.texto;
+
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: _Toque.acao(alerta: false, cores: Theme.of(context).colorScheme),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.percent, size: 22, color: cor),
+            const SizedBox(width: 10),
+            Text(
+              aplicado ? formatPercentDisplay(percentual) : 'DESCONTO',
+              style: TextStyle(
+                fontSize: _Toque.rotulo,
+                fontWeight: FontWeight.w800,
+                letterSpacing: .6,
+                color: cor,
+              ),
+            ),
           ],
         ),
       ),
@@ -1927,7 +1991,7 @@ class _CabecalhoDaVenda extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: compacto ? 56 : 66,
-      padding: EdgeInsets.symmetric(horizontal: compacto ? 8 : 20),
+      padding: EdgeInsets.symmetric(horizontal: compacto ? 12 : 20),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -1952,8 +2016,11 @@ class _CabecalhoDaVenda extends StatelessWidget {
           ),
           SizedBox(width: compacto ? 10 : 16),
           // Título e pílula do vendedor disputam a largura no retrato; os
-          // dois encolhem em vez de um empurrar o outro para fora.
-          Flexible(
+          // O título toma a esquerda inteira; é ele que empurra o vendedor e o
+          // SAIR para o canto direito. Antes o espaço livre era dividido entre
+          // título, `Spacer` e pílula, e a pílula ficava parada no começo da
+          // fatia dela — daí o vendedor e o SAIR aparecerem no meio da barra.
+          Expanded(
             child: Text(
               'NOVA VENDA',
               maxLines: 1,
@@ -1966,72 +2033,71 @@ class _CabecalhoDaVenda extends StatelessWidget {
               ),
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 12),
           // Vendedor e rede na mesma pílula: é o que a barra do terminal
           // mostrava, no lugar que a referência reserva para o vendedor.
-          Flexible(
-            child: ListenableBuilder(
-              listenable: conectividade,
-              builder: (context, _) => FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerRight,
-                child: Container(
-                  padding: EdgeInsets.only(
-                    left: 6,
-                    right: compacto ? 10 : 16,
-                    top: 5,
-                    bottom: 5,
+          ListenableBuilder(
+            listenable: conectividade,
+            builder: (context, _) => Container(
+              padding: EdgeInsets.only(
+                left: 6,
+                right: compacto ? 10 : 16,
+                top: 5,
+                bottom: 5,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .14),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Marca.amarelo,
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      size: 17,
+                      color: Marca.azul,
+                    ),
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .14),
-                    borderRadius: BorderRadius.circular(999),
+                  const SizedBox(width: 8),
+                  // Teto de largura no nome: sem ele um nome comprido
+                  // esticaria a pílula e empurraria o SAIR para fora da
+                  // barra, já que o grupo da direita tem largura própria.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: compacto ? 104 : 190,
+                    ),
+                    child: Text(
+                      (vendedor ?? 'VENDEDOR').toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: compacto ? 13 : 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Marca.amarelo,
-                        ),
-                        child: const Icon(
-                          Icons.person,
-                          size: 17,
-                          color: Marca.azul,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          (vendedor ?? 'VENDEDOR').toUpperCase(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: compacto ? 13 : 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        conectividade.isOnline
-                            ? Icons.cloud_done
-                            : Icons.cloud_off,
-                        size: 16,
-                        color: conectividade.isOnline
-                            ? Colors.white
-                            : Marca.amarelo,
-                      ),
-                    ],
+                  const SizedBox(width: 8),
+                  Icon(
+                    conectividade.isOnline ? Icons.cloud_done : Icons.cloud_off,
+                    size: 16,
+                    color:
+                        conectividade.isOnline ? Colors.white : Marca.amarelo,
                   ),
-                ),
+                ],
               ),
             ),
           ),
-          SizedBox(width: compacto ? 4 : 12),
+          // Vendedor e SAIR são um grupo só, colado no canto, com o respiro da
+          // referência entre os dois.
+          const SizedBox(width: 16),
           InkWell(
             onTap: onSair,
             borderRadius: BorderRadius.circular(10),
@@ -2289,7 +2355,7 @@ class _Tecla extends StatelessWidget {
         border: Border.all(
           color: auxiliar ? _Venda.auxBorda : _Venda.borda,
         ),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(_Toque.raio),
         boxShadow: [
           BoxShadow(
             color: auxiliar ? _Venda.auxSombra : _Venda.teclaSombra,
@@ -2301,7 +2367,7 @@ class _Tecla extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(_Toque.raio),
           child: Center(
             child: icone != null
                 ? Icon(icone, size: compacto ? 22 : 26, color: _Venda.texto)
@@ -2310,7 +2376,7 @@ class _Tecla extends StatelessWidget {
                     child: Text(
                       rotulo!,
                       style: TextStyle(
-                        fontSize: compacto ? 24 : 32,
+                        fontSize: compacto ? _Toque.digito : 32,
                         fontWeight: FontWeight.w800,
                         color: _Venda.painelEscuro,
                       ),
@@ -2411,7 +2477,10 @@ class _CartaoDeCategoria extends StatelessWidget {
     final cor = _Venda.corDaCategoria(categoria.code);
 
     return Container(
-      height: compacto ? 84 : 126,
+      // No retrato o cartão cede um pouco de altura para o teclado; o conteúdo
+      // é escalado pelo `FittedBox` abaixo, então a caixa menor não corta nem
+      // ícone nem texto, e 72 segue muito acima do alvo de toque.
+      height: compacto ? 72 : 126,
       decoration: BoxDecoration(
         color: armado ? cor : _Venda.desarmadoFundo,
         border: Border.all(
@@ -2640,15 +2709,23 @@ class _CorpoEstreito extends StatelessWidget {
             ],
           ),
         ),
+        // Sete para três, e não cinco para quatro: com a divisão antiga as
+        // quatro fileiras do teclado ficavam com ~45 de altura e a última saía
+        // cortada pelo painel da venda — que é rolável e não perde nada com a
+        // fatia menor, enquanto tecla curta custa toque errado. O respiro de
+        // cima separa as teclas da sombra dura dos cartões de categoria, que
+        // encostava na primeira fileira.
         Expanded(
-          flex: 5,
+          flex: 7,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            // Respiro embaixo também: sem ele a sombra dura da última fileira
+            // morria por baixo do painel da venda, e a fileira parecia cortada.
+            padding: const EdgeInsets.fromLTRB(12, 14, 12, 8),
             child: _TecladoDoValor(controller: controller, compacto: true),
           ),
         ),
         Flexible(
-          flex: 4,
+          flex: 3,
           child: _CartPanel(
             controller: controller,
             onPickCustomer: onPickCustomer,
