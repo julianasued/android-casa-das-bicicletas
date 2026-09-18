@@ -35,9 +35,25 @@ class SaleFinished {
     required this.result,
     this.printFailure,
     this.pendingOperationId,
+    this.customerPhone,
+    this.discountPercentHundredths = 0,
   });
 
   final SaleWithDocument result;
+
+  /// Telefone do cliente, como estava no rascunho.
+  ///
+  /// A `Sale` do servidor traz só id e nome do cliente (§5 da API); o contato
+  /// veio da busca que o vendedor fez, e a tela de desfecho o mostra para quem
+  /// precisar ligar por causa da retirada.
+  final String? customerPhone;
+
+  /// Percentual negociado, em centésimos de ponto.
+  ///
+  /// O servidor devolve o desconto **em reais**, que é o que vale. Isto aqui é
+  /// o critério — "5% sobre o subtotal" —, e serve só para a tela dizer de onde
+  /// o valor saiu. Zero quando não houve desconto.
+  final int discountPercentHundredths;
 
   /// `null` quando o documento 1 saiu; preenchido quando falta papel, a
   /// impressora está fora ou o SDK não respondeu (§11).
@@ -106,12 +122,21 @@ class CreateSale {
             'A venda foi registrada, mas o servidor não devolveu o documento. '
             'Use a reimpressão.',
           ),
+          customerPhone: draft.customer?.phone,
+          discountPercentHundredths: draft.discountPercentHundredths,
         ),
       );
     }
 
     final printed = await _printer.printDocument(document);
-    return Ok(SaleFinished(result: value, printFailure: printed.failureOrNull));
+    return Ok(
+      SaleFinished(
+        result: value,
+        printFailure: printed.failureOrNull,
+        customerPhone: draft.customer?.phone,
+        discountPercentHundredths: draft.discountPercentHundredths,
+      ),
+    );
   }
 
   /// Guarda a venda na fila e imprime o documento provisório.
@@ -148,6 +173,8 @@ class CreateSale {
         ),
         printFailure: printed.failureOrNull,
         pendingOperationId: draft.uuid,
+        customerPhone: draft.customer?.phone,
+        discountPercentHundredths: draft.discountPercentHundredths,
       ),
     );
   }

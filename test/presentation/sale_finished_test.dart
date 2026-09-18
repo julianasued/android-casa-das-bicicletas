@@ -25,14 +25,10 @@ void main() {
     return saleWithDocumentFromJson(json);
   }
 
-  /// A tela rola: os botões ficam abaixo da dobra depois dos cartões de
-  /// estado, e a ListView não constrói o que não está visível.
+  /// Em tela estreita o miolo rola; as duas saídas ficam fixas no pé.
   Future<void> rolarAte(WidgetTester tester, Finder alvo) async {
-    await tester.scrollUntilVisible(
-      alvo,
-      120,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.ensureVisible(alvo);
+    await tester.pumpAndSettle();
   }
 
   Future<void> montar(
@@ -59,22 +55,43 @@ void main() {
     testWidgets('anuncia o desfecho e os dados da venda', (tester) async {
       await montar(tester, SaleFinished(result: desfecho()));
 
-      expect(find.text('VENDA FINALIZADA!'), findsOneWidget);
+      expect(find.text('VENDA FINALIZADA'), findsOneWidget);
       expect(find.textContaining('Venda #'), findsOneWidget);
       expect(find.text('SALE-L1-7F3A9C2B'), findsOneWidget);
-      expect(find.text('Vendedor'), findsOneWidget);
-      expect(find.text('Pagamento'), findsOneWidget);
+      expect(find.text('VENDEDOR'), findsOneWidget);
+      expect(find.text('PAGAMENTO'), findsOneWidget);
+      // A situação é a que o servidor registrou. A tela não declara a venda
+      // paga em lugar nenhum: quem recebe é o caixa, e o estado só muda lá.
+      expect(find.text('Aguardando caixa'), findsOneWidget);
+      expect(find.text('Paga'), findsNothing);
+      expect(find.textContaining('venda paga'), findsNothing);
     });
 
-    testWidgets('voltar ao início leva à venda, não ao menu antigo',
-        (tester) async {
+    testWidgets('INÍCIO leva ao repouso do terminal', (tester) async {
       await montar(tester, SaleFinished(result: desfecho()));
 
-      await rolarAte(tester, find.text('Voltar ao início'));
-      await tester.tap(find.text('Voltar ao início'));
+      await rolarAte(tester, find.text('INÍCIO'));
+      await tester.tap(find.text('INÍCIO'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('rota: /inicial'), findsOneWidget);
+    });
+
+    testWidgets('NOVA VENDA abre outra montagem, do zero', (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      await rolarAte(tester, find.text('NOVA VENDA'));
+      await tester.tap(find.text('NOVA VENDA'));
       await tester.pumpAndSettle();
 
       expect(find.text('rota: /venda'), findsOneWidget);
+    });
+
+    testWidgets('sem cliente, a tela diz isso em vez de omitir', (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      expect(find.text('Venda sem cliente'), findsOneWidget);
+      expect(find.text('—'), findsOneWidget);
     });
   });
 
@@ -97,10 +114,10 @@ void main() {
       );
 
       // A venda continua na tela: ela vale, o que faltou foi o papel.
-      expect(find.text('VENDA FINALIZADA!'), findsOneWidget);
+      expect(find.text('VENDA FINALIZADA'), findsOneWidget);
       expect(find.textContaining('não foi impresso'), findsOneWidget);
-      await rolarAte(tester, find.text('Reimprimir documento 1'));
-      expect(find.text('Reimprimir documento 1'), findsOneWidget);
+      await rolarAte(tester, find.text('REIMPRIMIR DOCUMENTO'));
+      expect(find.text('REIMPRIMIR DOCUMENTO'), findsOneWidget);
     });
 
     testWidgets('reimprimir usa a reimpressão, e não gera outra venda',
@@ -121,8 +138,8 @@ void main() {
         transport: transport,
       );
 
-      await rolarAte(tester, find.text('Reimprimir documento 1'));
-      await tester.tap(find.text('Reimprimir documento 1'));
+      await rolarAte(tester, find.text('REIMPRIMIR DOCUMENTO'));
+      await tester.tap(find.text('REIMPRIMIR DOCUMENTO'));
       await tester.pumpAndSettle();
 
       // Nenhum POST /sales/: reimpressão não duplica venda nem documento.
@@ -144,7 +161,10 @@ void main() {
         (tester) async {
       await montar(tester, SaleFinished(result: desfecho()));
 
-      expect(find.textContaining('Não esqueça de entregar'), findsOneWidget);
+      expect(
+        find.textContaining('Entregue ao cliente para levar ao caixa'),
+        findsOneWidget,
+      );
       // Documento 1 não é comprovante de pagamento (RF08).
       expect(
         find.textContaining('não é comprovante de pagamento'),
