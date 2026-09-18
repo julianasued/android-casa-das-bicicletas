@@ -22,8 +22,8 @@ void main() {
     await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
     await tester.pumpAndSettle();
 
-    expect(find.text('Configuração do terminal'), findsOneWidget);
-    expect(find.text('Endereço da API'), findsOneWidget);
+    expect(find.text('CONFIGURAÇÃO DO TERMINAL'), findsOneWidget);
+    expect(find.text('ENDEREÇO DA API'), findsOneWidget);
   });
 
   testWidgets('terminal configurado abre na tela inicial', (tester) async {

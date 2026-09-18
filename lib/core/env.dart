@@ -13,7 +13,16 @@ class AppEnvironment {
     required this.apiBaseUrl,
     required this.requestTimeout,
     required this.allowInsecureHttp,
+    this.appVersion = _versaoDoPubspec,
   });
+
+  /// Versão declarada no `pubspec.yaml`.
+  ///
+  /// Constante porque ler o `pubspec` em tempo de execução exigiria um plugin
+  /// só para isso. A compilação pode sobrescrever com
+  /// `--dart-define=APP_VERSION=…`, e o valor aparece no cabeçalho da
+  /// configuração — é o que o suporte pergunta primeiro ao telefone.
+  static const String _versaoDoPubspec = '0.1.0';
 
   /// Valores de compilação: `flutter build apk --dart-define=API_BASE_URL=...`.
   factory AppEnvironment.fromDefines() {
@@ -25,22 +34,29 @@ class AppEnvironment {
     // RNF01 — HTTPS é obrigatório; a exceção existe só para o emulador apontando
     // para o Django local, e precisa ser pedida explicitamente na compilação.
     const insecure = bool.fromEnvironment('ALLOW_INSECURE_HTTP');
+    const version = String.fromEnvironment(
+      'APP_VERSION',
+      defaultValue: _versaoDoPubspec,
+    );
 
     return AppEnvironment(
       apiBaseUrl: url,
       requestTimeout: Duration(seconds: timeoutSeconds),
       allowInsecureHttp: insecure,
+      appVersion: version,
     );
   }
 
   final String apiBaseUrl;
   final Duration requestTimeout;
   final bool allowInsecureHttp;
+  final String appVersion;
 
   AppEnvironment copyWith({String? apiBaseUrl}) => AppEnvironment(
         apiBaseUrl: apiBaseUrl ?? this.apiBaseUrl,
         requestTimeout: requestTimeout,
         allowInsecureHttp: allowInsecureHttp,
+        appVersion: appVersion,
       );
 
   /// `true` quando a URL viola a RNF01 e a compilação não liberou exceção.

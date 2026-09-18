@@ -20,6 +20,7 @@ import '../../core/formatters.dart';
 import '../../core/result.dart';
 import '../../core/uuid.dart';
 import '../session/session_manager.dart';
+import 'api_endpoints.dart';
 import 'http_transport.dart';
 
 /// Corpo JSON já decodificado, com o status da resposta.
@@ -63,6 +64,63 @@ class ApiClient {
     bool requiresStore = true,
   }) =>
       _send('GET', path, query: query, requiresStore: requiresStore);
+
+  /// O servidor daquele endereço responde?
+  ///
+  /// Serve à tela de configuração, que precisa saber se o endereço digitado
+  /// leva a algum lugar **antes** de gravá-lo — um erro de digitação ali deixa
+  /// o terminal sem conseguir abrir, e quem descobre é o balcão.
+  ///
+  /// Só isso: conexão, não credencial. `401` é resposta — o servidor está lá e
+  /// recusou por falta de token, que é o esperado nesta altura. O que reprova é
+  /// não chegar: rede fora, DNS errado, certificado inválido, tempo esgotado.
+  ///
+  /// Não usa `baseUrl` de propósito: o endereço ainda não foi salvo, e é
+  /// justamente ele que está sendo testado.
+  Future<Result<void>> probe(String baseUrl) async {
+    final normalizada = baseUrl.trim().endsWith('/')
+        ? baseUrl.trim()
+        : '${baseUrl.trim()}/';
+
+    if (_environment.violatesTransportSecurity(normalizada)) {
+      return const Err(
+        ConfigurationFailure('A comunicação com a API exige HTTPS (RNF01).'),
+      );
+    }
+
+    final Uri url;
+    try {
+      url = Uri.parse('$normalizada${ApiEndpoints.stores}');
+    } on FormatException {
+      return const Err(ConfigurationFailure('Endereço da API inválido.'));
+    }
+    if (!url.hasAuthority) {
+      return const Err(ConfigurationFailure('Endereço da API inválido.'));
+    }
+
+    try {
+      await _transport
+          .send(HttpRequest(
+            method: 'GET',
+            url: url,
+            headers: const {'Accept': 'application/json'},
+          ))
+          .timeout(_environment.requestTimeout);
+      return const Ok(null);
+    } on TimeoutException {
+      return const Err(
+        NetworkFailure('O servidor demorou a responder. Confira o endereço.'),
+      );
+    } on SocketException {
+      return const Err(NetworkFailure());
+    } on HandshakeException {
+      return const Err(
+        NetworkFailure('Falha na conexão segura com o servidor (certificado).'),
+      );
+    } on HttpException catch (error) {
+      return Err(NetworkFailure('Falha de comunicação: ${error.message}'));
+    }
+  }
 
   /// POST de criação: leva `X-Idempotency-Key` salvo indicação em contrário.
   ///
