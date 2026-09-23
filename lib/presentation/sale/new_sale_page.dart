@@ -346,14 +346,14 @@ class _NewSalePageState extends State<NewSalePage> {
   }
 
   Future<void> _editDiscount() async {
-    final result = await showDialog<int>(
+    final result = await showDialog<SaleDiscount>(
       context: context,
       builder: (_) => _DiscountDialog(
-        initialHundredths: _controller.draft.discountPercentHundredths,
+        inicial: _controller.draft.discount,
         subtotal: _controller.totals.gross,
       ),
     );
-    if (result != null) _controller.setDiscountPercent(result);
+    if (result != null) _controller.setDiscount(result);
   }
 
   Future<void> _finish() async {
@@ -1218,14 +1218,14 @@ class _TotalRow extends StatelessWidget {
   }
 }
 
+/// Em que unidade o vendedor está digitando o desconto.
+enum _ModoDoDesconto { percentual, valor }
+
 /// Desconto negociado, com o teto do §13.3 aplicado na própria tela.
 class _DiscountDialog extends StatefulWidget {
-  const _DiscountDialog({
-    required this.initialHundredths,
-    required this.subtotal,
-  });
+  const _DiscountDialog({required this.inicial, required this.subtotal});
 
-  final int initialHundredths;
+  final SaleDiscount inicial;
   final Money subtotal;
 
   @override
@@ -1239,27 +1239,97 @@ class _DiscountDialog extends StatefulWidget {
 ///
 /// - o teto é 5% (13.3), e 10, 15 ou 20 produziriam uma venda que o servidor
 ///   recusa no envio — o vendedor descobriria só ao finalizar;
-/// - `SaleCreateSerializer` aceita `discount_percent`, e não valor: desconto em
-///   reais precisaria de campo novo no backend.
+/// - `SaleCreateSerializer` aceita `discount_percent`, e não valor.
 ///
 /// Mantive o desenho — cabeçalho laranja com subtotal e "fica em", atalhos,
 /// teclado, "sem desconto" — e troquei o conteúdo: os atalhos ficam dentro do
-/// teto, e o que se digita é o percentual.
+/// teto.
+///
+/// Dá para digitar em % ou em R$, porque no balcão se negocia das duas formas
+/// ("tira 5%" e "faz por 950"). O que muda é só a leitura do que se digita: o
+/// modo valor converte para percentual em [discountPercentFromAmount] e daí
+/// para baixo é o mesmo caminho de sempre, com o mesmo teto e sem campo novo
+/// no backend.
 class _DiscountDialogState extends State<_DiscountDialog> {
   static const _atalhos = [100, 200, 300, 500];
 
-  late String _digitado =
-      widget.initialHundredths == 0 ? '' : widget.initialHundredths.toString();
+  /// Quantos dígitos cada modo aceita. Em percentual 99,99% já passa longe do
+  /// teto; em reais o teto de uma venda grande precisa de mais casas.
+  static const _limiteDeDigitos = {
+    _ModoDoDesconto.percentual: 4,
+    _ModoDoDesconto.valor: 8,
+  };
 
-  int get _hundredths => int.tryParse(_digitado.isEmpty ? '0' : _digitado) ?? 0;
+  late _ModoDoDesconto _modo = widget.inicial.isAmount
+      ? _ModoDoDesconto.valor
+      : _ModoDoDesconto.percentual;
 
-  bool get _acimaDoTeto => _hundredths > maxDiscountPercentHundredths;
+  late String _digitado = _doInicial();
 
-  Money get _desconto =>
-      _acimaDoTeto ? const Money.zero() : widget.subtotal.percent(_hundredths);
+  String _doInicial() {
+    final valor = widget.inicial.amount;
+    final bruto = valor?.cents ?? widget.inicial.hundredths;
+    return bruto <= 0 ? '' : bruto.toString();
+  }
+
+  int get _numeroDigitado =>
+      int.tryParse(_digitado.isEmpty ? '0' : _digitado) ?? 0;
+
+  /// O que foi digitado lido como reais — só significa isso no modo valor.
+  Money get _valorDigitado => Money.fromCents(_numeroDigitado);
+
+  /// O desconto em negociação, na unidade em que está sendo digitado.
+  ///
+  /// É este objeto que sai do diálogo. O modo em reais não vira percentual no
+  /// caminho: R$ 69,00 sobre R$ 1.387,93 não cabe em duas casas, e converter
+  /// para calcular faria a venda receber R$ 68,98 — um número que ninguém
+  /// combinou.
+  SaleDiscount get _descontoNegociado => switch (_modo) {
+        _ModoDoDesconto.percentual => SaleDiscount.percent(_numeroDigitado),
+        _ModoDoDesconto.valor => SaleDiscount.amount(_valorDigitado),
+      };
+
+  /// Percentual equivalente, só para mostrar ao lado do valor.
+  int get _hundredths => _descontoNegociado.percentOn(widget.subtotal);
+
+  /// Teto de 5% medido na unidade negociada — o mesmo centavo que o backend
+  /// confere, e não um percentual arredondado no meio do caminho.
+  bool get _acimaDoTeto => _descontoNegociado.exceedsCapOn(widget.subtotal);
+
+  /// O desconto que a venda vai receber, exatamente como vai receber.
+  Money get _desconto => _acimaDoTeto
+      ? const Money.zero()
+      : _descontoNegociado.amountOn(widget.subtotal);
+
+  void _trocarModo(_ModoDoDesconto modo) {
+    if (modo == _modo) return;
+    // Converte o que já está na tela em vez de zerar: sem isto o mesmo "500"
+    // significaria 5% ou R$ 5,00 conforme o modo, que é exatamente a
+    // ambiguidade que o seletor existe para evitar. A conversão parte do
+    // desconto em reais, então ir de % para R$ não move o valor.
+    final convertido = switch (modo) {
+      _ModoDoDesconto.valor =>
+        _descontoNegociado.amountOn(widget.subtotal).cents,
+      _ModoDoDesconto.percentual => _hundredths,
+    };
+    setState(() {
+      _modo = modo;
+      _digitado = convertido <= 0 ? '' : convertido.toString();
+    });
+  }
+
+
+  /// Atalho é sempre percentual; no modo valor entra o equivalente em reais.
+  void _aplicarAtalho(int hundredths) {
+    final valor = switch (_modo) {
+      _ModoDoDesconto.percentual => hundredths,
+      _ModoDoDesconto.valor => widget.subtotal.percent(hundredths).cents,
+    };
+    setState(() => _digitado = valor == 0 ? '' : valor.toString());
+  }
 
   void _digitar(String digito) {
-    if (_digitado.length >= 4) return;
+    if (_digitado.length + digito.length > _limiteDeDigitos[_modo]!) return;
     setState(() {
       _digitado = (_digitado + digito).replaceFirst(RegExp(r'^0+(?=\d)'), '');
     });
@@ -1320,28 +1390,42 @@ class _DiscountDialogState extends State<_DiscountDialog> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'FICA EM',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 1.8,
-                          color: Colors.white.withValues(alpha: .85),
+                  // Divide a largura com o subtotal e encolhe a fonte junto,
+                  // como o lado esquerdo já fazia. Sem isto uma venda de
+                  // R$ 10.000,00 empurrava o cabeçalho para fora do M10 — e
+                  // quanto a venda fica é o número que não pode faltar aqui.
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            'FICA EM',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.8,
+                              color: Colors.white.withValues(alpha: .85),
+                            ),
+                          ),
                         ),
-                      ),
-                      Text(
-                        fica.toDisplayString(),
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            fica.toDisplayString(),
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -1363,16 +1447,26 @@ class _DiscountDialogState extends State<_DiscountDialog> {
                             child: _AtalhoDeDesconto(
                               hundredths: atalho,
                               selecionado: _hundredths == atalho,
-                              onPressed: () => setState(
-                                () => _digitado = atalho.toString(),
-                              ),
+                              onPressed: () => _aplicarAtalho(atalho),
                             ),
                           ),
                         ],
                       ],
                     ),
                     const SizedBox(height: 16),
-                    const _RotuloDoDesconto('OU DIGITE O PERCENTUAL'),
+                    Row(
+                      children: [
+                        const Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: _RotuloDoDesconto('OU DIGITE EM'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _SeletorDeModo(modo: _modo, onTrocar: _trocarModo),
+                      ],
+                    ),
                     const SizedBox(height: 9),
                     LayoutBuilder(
                       builder: (context, constraints) {
@@ -1380,10 +1474,14 @@ class _DiscountDialogState extends State<_DiscountDialog> {
                           onDigito: _digitar,
                           onApagar: _apagar,
                         );
-                        final mostrador = _MostradorDoPercentual(
+                        final mostrador = _MostradorDoDesconto(
+                          modo: _modo,
+                          digitado: _valorDigitado,
                           hundredths: _hundredths,
+                          desconto: _desconto,
                           acimaDoTeto: _acimaDoTeto,
-                          onSemDesconto: () => Navigator.of(context).pop(0),
+                          onSemDesconto: () => Navigator.of(context)
+                              .pop(const SaleDiscount.none()),
                         );
 
                         if (constraints.maxWidth < 520) {
@@ -1436,9 +1534,10 @@ class _DiscountDialogState extends State<_DiscountDialog> {
                     child: FilledButton(
                       // Acima do teto o botão fica inativo em vez de recusar
                       // depois: o vendedor vê o limite antes de tentar.
-                      onPressed: _acimaDoTeto || _hundredths == 0
+                      onPressed: _acimaDoTeto || _descontoNegociado.isZero
                           ? null
-                          : () => Navigator.of(context).pop(_hundredths),
+                          : () =>
+                              Navigator.of(context).pop(_descontoNegociado),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(66),
                         backgroundColor: const Color(0xFFD97B06),
@@ -1517,19 +1616,140 @@ class _AtalhoDeDesconto extends StatelessWidget {
   }
 }
 
-class _MostradorDoPercentual extends StatelessWidget {
-  const _MostradorDoPercentual({
+/// Troca entre digitar o desconto em % e em R$.
+///
+/// Os dois rótulos ficam sempre visíveis, em vez de um botão que alterna: o
+/// vendedor precisa ver em que unidade está antes de digitar, não descobrir
+/// depois de errar a conta.
+class _SeletorDeModo extends StatelessWidget {
+  const _SeletorDeModo({required this.modo, required this.onTrocar});
+
+  final _ModoDoDesconto modo;
+  final ValueChanged<_ModoDoDesconto> onTrocar;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget opcao(_ModoDoDesconto alvo, String rotulo) {
+      final ativo = modo == alvo;
+      return SizedBox(
+        height: 56,
+        width: 58,
+        child: FilledButton(
+          onPressed: () => onTrocar(alvo),
+          style: FilledButton.styleFrom(
+            padding: EdgeInsets.zero,
+            backgroundColor:
+                ativo ? const Color(0xFFD97B06) : const Color(0xFFF7F9FD),
+            foregroundColor: ativo ? Colors.white : _Venda.painelEscuro,
+            side: BorderSide(
+              color: ativo ? const Color(0xFFD97B06) : _Venda.borda,
+            ),
+          ),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              rotulo,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        opcao(_ModoDoDesconto.percentual, '%'),
+        const SizedBox(width: 8),
+        opcao(_ModoDoDesconto.valor, 'R\$'),
+      ],
+    );
+  }
+}
+
+/// Uma das duas leituras do desconto: rótulo pequeno, valor embaixo.
+class _LeituraDoDesconto extends StatelessWidget {
+  const _LeituraDoDesconto({
+    required this.rotulo,
+    required this.valor,
+    this.alerta = false,
+  });
+
+  final String rotulo;
+  final String valor;
+  final bool alerta;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FD),
+        border: Border.all(color: _Venda.borda),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            rotulo,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+              color: _Venda.rotulo,
+            ),
+          ),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              valor,
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+                color: alerta
+                    ? Theme.of(context).colorScheme.error
+                    : _Venda.texto,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// O desconto em construção: o número grande na unidade que se está digitando
+/// e, embaixo, as duas leituras dele.
+///
+/// As duas aparecem sempre, nos dois modos. Quem digita 5% quer saber quanto
+/// sai do caixa; quem digita R$ 50,00 precisa do percentual, porque o teto é
+/// percentual. Mostrar só a unidade digitada deixaria a conta para a cabeça do
+/// vendedor justamente na hora de negociar.
+class _MostradorDoDesconto extends StatelessWidget {
+  const _MostradorDoDesconto({
+    required this.modo,
+    required this.digitado,
     required this.hundredths,
+    required this.desconto,
     required this.acimaDoTeto,
     required this.onSemDesconto,
   });
 
+  final _ModoDoDesconto modo;
+  final Money digitado;
   final int hundredths;
+  final Money desconto;
   final bool acimaDoTeto;
   final VoidCallback onSemDesconto;
 
   @override
   Widget build(BuildContext context) {
+    final emReais = modo == _ModoDoDesconto.valor;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -1547,7 +1767,9 @@ class _MostradorDoPercentual extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    formatPercentDisplay(hundredths),
+                    emReais
+                        ? digitado.toDisplayString()
+                        : formatPercentDisplay(hundredths),
                     style: const TextStyle(
                       fontSize: 36,
                       fontWeight: FontWeight.w800,
@@ -1560,6 +1782,27 @@ class _MostradorDoPercentual extends StatelessWidget {
               Container(width: 3, height: 32, color: Marca.amarelo),
             ],
           ),
+        ),
+        const SizedBox(height: 9),
+        // O par que o vendedor confere antes de aplicar; o cabeçalho completa
+        // com o subtotal e com quanto a venda fica.
+        Row(
+          children: [
+            Expanded(
+              child: _LeituraDoDesconto(
+                rotulo: 'DESCONTO',
+                valor: acimaDoTeto ? '—' : '- ${desconto.toDisplayString()}',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _LeituraDoDesconto(
+                rotulo: 'EQUIVALE A',
+                valor: formatPercentDisplay(hundredths),
+                alerta: acimaDoTeto,
+              ),
+            ),
+          ],
         ),
         if (acimaDoTeto) ...[
           const SizedBox(height: 8),

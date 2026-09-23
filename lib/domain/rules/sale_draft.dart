@@ -113,7 +113,22 @@ class SaleDraft {
 
   PaymentMethod paymentMethod;
   Customer? customer;
-  int discountPercentHundredths = 0;
+
+  /// O desconto como foi negociado — em percentual ou em reais.
+  SaleDiscount discount = const SaleDiscount.none();
+
+  /// Percentual equivalente do desconto, em centésimos.
+  ///
+  /// Derivado, e não guardado: quando a negociação foi em reais é o valor que
+  /// manda, e o percentual existe para o vendedor e o cliente conferirem.
+  /// Atribuir continua registrando uma negociação em percentual, que é o que
+  /// os atalhos e o teclado da tela fazem.
+  int get discountPercentHundredths => discount.percentOn(_gross);
+
+  set discountPercentHundredths(int hundredths) =>
+      discount = SaleDiscount.percent(hundredths);
+
+  Money get _gross => sumMoney([for (final line in _lines) line.grossAmount]);
 
   List<SaleDraftLine> get lines => List.unmodifiable(_lines);
   bool get isEmpty => _lines.isEmpty;
@@ -178,14 +193,19 @@ class SaleDraft {
 
   void clear() {
     _lines.clear();
-    discountPercentHundredths = 0;
+    discount = const SaleDiscount.none();
     customer = null;
   }
 
-  SaleTotals get totals => computeTotals(
-        lineGrosses: [for (final line in _lines) line.grossAmount],
-        discountPercentHundredths: discountPercentHundredths,
-      );
+  SaleTotals get totals {
+    final brutos = [for (final line in _lines) line.grossAmount];
+    // O desconto vai resolvido em reais: é o mesmo número que o servidor vai
+    // gravar, tenha sido negociado em percentual ou em valor.
+    return computeTotals(
+      lineGrosses: brutos,
+      discountAmount: discount.amountOn(sumMoney(brutos)),
+    );
+  }
 
   /// Tudo o que impede o envio, de uma vez — a tela lista, não descobre um a um.
   List<SaleDraftProblem> get problems {
@@ -194,10 +214,13 @@ class SaleDraft {
     if (_lines.isEmpty) {
       found.add(const SaleDraftProblem('Adicione ao menos um produto à venda.'));
     }
-    if (discountPercentHundredths > maxDiscountPercentHundredths) {
+    // Medido na unidade negociada, e conferido de novo aqui porque o bruto
+    // muda: R$ 69,00 cabem em 5% de R$ 1.387,93, mas não no que sobra depois
+    // de o vendedor tirar um item da venda.
+    if (discount.exceedsCapOn(_gross)) {
       found.add(const SaleDraftProblem('O desconto máximo é de 5% (13.3).'));
     }
-    if (discountPercentHundredths < 0) {
+    if (discount.isNegative) {
       found.add(const SaleDraftProblem('Desconto não pode ser negativo.'));
     }
     if (paymentMethod.requiresCustomer && customer == null) {
@@ -222,7 +245,7 @@ class SaleDraft {
   List<SaleDraftWarning> get warnings {
     final found = <SaleDraftWarning>[];
 
-    if (paymentMethod == PaymentMethod.credito && discountPercentHundredths > 0) {
+    if (paymentMethod == PaymentMethod.credito && !discount.isZero) {
       found.add(
         const SaleDraftWarning(
           'O caixa não recebe no crédito uma venda com desconto (13.3). '

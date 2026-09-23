@@ -321,9 +321,10 @@ class NewSaleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Desconto em centésimos de percentual; acima do teto o domínio recusa (13.3).
-  void setDiscountPercent(int hundredths) {
-    draft.discountPercentHundredths = hundredths;
+  /// Desconto negociado, em percentual ou em reais; acima do teto o domínio
+  /// recusa (13.3).
+  void setDiscount(SaleDiscount discount) {
+    draft.discount = discount;
     notifyListeners();
   }
 

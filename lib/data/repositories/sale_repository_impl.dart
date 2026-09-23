@@ -61,6 +61,13 @@ class SaleRepositoryImpl implements SaleRepository {
         'payment_method': draft.paymentMethod.code,
         if (draft.customer != null) 'customer_id': draft.customer!.id,
         'discount_percent': _percent(draft.discountPercentHundredths),
+        // Negociado em reais vai em reais: nenhum percentual de duas casas
+        // produz R$ 69,00 sobre R$ 1.387,93, e o servidor recalcularia o
+        // desconto a partir dele. O percentual continua indo junto — é o que
+        // um servidor que ainda não conhece este campo vai usar, caindo no
+        // comportamento antigo em vez de recusar a venda.
+        if (draft.discount.amount case final negociado?)
+          'discount_amount': negociado.toApiString(),
         'created_offline': false,
         'items': [
           for (final line in draft.lines)
