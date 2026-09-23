@@ -11,6 +11,7 @@
 library;
 
 import '../../core/formatters.dart';
+import '../../core/quantity.dart';
 import '../../domain/entities/printed_document.dart';
 import 'print_command.dart';
 
@@ -61,6 +62,12 @@ class DocumentLayout {
   // Blocos
   // -------------------------------------------------------------------------
 
+  /// Identificação da empresa e o que é este papel.
+  ///
+  /// O CNPJ e o endereço não estão no modelo visual — ele é um desenho de
+  /// referência, e omite o que a nota de verdade precisa carregar: §7 da
+  /// integração exige a identificação da empresa. O resto do cabeçalho segue
+  /// o modelo.
   List<PrintCommand> _header(PrintedDocument document) => <PrintCommand>[
         PrintText(
           document.storeName.toUpperCase(),
@@ -75,12 +82,10 @@ class DocumentLayout {
         if (document.storeAddress.isNotEmpty)
           ..._wrapped(document.storeAddress, align: PrintAlign.center),
         PrintText('Loja ${document.storeCode}', align: PrintAlign.center),
-        PrintText(_divider()),
         PrintText(
           _titleFor(document),
           align: PrintAlign.center,
           bold: true,
-          doubleHeight: true,
         ),
         if (document.isReprint)
           PrintText(
@@ -96,33 +101,70 @@ class DocumentLayout {
         DocumentType.doc2 => 'DOCUMENTO DE RETIRADA',
       };
 
+  /// Quem vendeu, para quem, qual venda e quando — no formato `Rótulo:valor`
+  /// do modelo.
+  ///
+  /// Vendedor e cliente saem em linhas separadas, e não na mesma linha do
+  /// modelo, por aritmética: dois nomes completos não cabem em 32 colunas, e
+  /// cortar nome de cliente no papel que ele leva ao caixa é pior que gastar
+  /// uma linha a mais.
   List<PrintCommand> _identification(PrintedDocument document) => <PrintCommand>[
-        PrintText(_row('Venda', '#${document.saleId}')),
-        PrintText(_row('Documento', document.reference)),
-        PrintText(_row('Data', formatDateTime(document.saleOccurredAt))),
-        PrintText(_row('Vendedor', _fit(document.sellerName))),
-        PrintText(_row('Terminal', _fit(document.terminalName))),
-        if (document.customerName != null)
-          PrintText(_row('Cliente', _fit(document.customerName!))),
-        PrintText(_row('Pagamento', document.paymentMethodLabel)),
+        PrintText('Vendedor:${_fit(document.sellerName, reserved: 9)}'),
+        PrintText(
+          'Cliente:${_fit(document.customerName ?? 'nao informado', reserved: 8)}',
+        ),
+        // Só quando o terminal tem nome: na venda montada offline o cadastro
+        // pode não ter chegado ainda, e "Terminal:" sozinho é ruído no papel.
+        if (document.terminalName.isNotEmpty)
+          PrintText('Terminal:${_fit(document.terminalName, reserved: 9)}'),
+        PrintText('VENDA:#${document.saleId}'),
+        PrintText('REF:${_fit(document.reference, reserved: 4)}'),
+        PrintText(
+          _row(
+            'Data:${formatDate(document.saleOccurredAt)}',
+            'Hora:${formatTime(document.saleOccurredAt)}',
+          ),
+        ),
+        PrintText(_columns('ITEM', 'QTD', 'VALOR'), bold: true),
         PrintText(_divider()),
       ];
 
-  /// Cada item ocupa duas linhas: descrição em uma, conta e total na outra.
+  /// Os itens em três colunas, como no modelo: nome, quantidade e total.
   ///
-  /// Numa bobina de 32 colunas não cabe "nome + quantidade + unitário + total"
-  /// em uma linha só sem cortar o nome do produto — e o nome é o que o cliente
-  /// confere.
+  /// O preço unitário só aparece quando a quantidade não é 1 — aí ele deixa de
+  /// ser repetição do total e vira a conta que o cliente confere. Com nome
+  /// maior que a coluna, o nome ocupa a linha inteira e a conta desce para a
+  /// seguinte: o nome é o que se confere primeiro, e cortá-lo é pior que
+  /// gastar linha.
   List<PrintCommand> _items(PrintedDocument document) {
     final commands = <PrintCommand>[];
 
     for (final item in document.items) {
-      commands.addAll(_wrapped(item.productName));
+      final quantidade = item.quantity.toDisplayString();
+      final total = item.lineTotal.toDisplayString(symbol: false);
+
+      if (item.productName.length <= _larguraDoItem) {
+        commands.add(PrintText(_columns(item.productName, quantidade, total)));
+      } else {
+        commands.addAll(_wrapped(item.productName));
+        commands.add(PrintText(_columns('', quantidade, total)));
+      }
+
+      if (item.quantity != const Quantity.units(1)) {
+        commands.add(
+          PrintText(
+            '  $quantidade x ${item.unitPrice.toDisplayString(symbol: false)}',
+          ),
+        );
+      }
+    }
+
+    if (document.hasDiscount) {
       commands.add(
         PrintText(
           _row(
-            '  ${item.quantity.toDisplayString()} x ${item.unitPrice.toDisplayString(symbol: false)}',
-            item.lineTotal.toDisplayString(symbol: false),
+            '[Desconto]',
+            '-${document.discountAmount.toDisplayString(symbol: false)}',
           ),
         ),
       );
@@ -132,17 +174,33 @@ class DocumentLayout {
     return commands;
   }
 
+  /// Subtotal, desconto e o total — com a forma de pagamento repetindo o valor
+  /// embaixo, como no modelo.
+  ///
+  /// O subtotal sai sempre, mesmo sem desconto: no modelo ele é uma linha
+  /// fixa, e uma nota que mostra só o total esconde a conta de quem confere.
   List<PrintCommand> _totals(PrintedDocument document) => <PrintCommand>[
-        if (document.hasDiscount) ...[
-          PrintText(_row('Subtotal', document.grossAmount.toDisplayString(symbol: false))),
-          PrintText(
-            _row('Desconto', '-${document.discountAmount.toDisplayString(symbol: false)}'),
-          ),
-        ],
         PrintText(
-          _row('TOTAL', document.totalAmount.toDisplayString(symbol: false)),
+          _row('Sub-total', document.grossAmount.toDisplayString(symbol: false)),
+        ),
+        if (document.hasDiscount)
+          PrintText(
+            _row(
+              'Desconto',
+              '-${document.discountAmount.toDisplayString(symbol: false)}',
+            ),
+          ),
+        PrintText(_divider()),
+        PrintText(
+          _row('Total', document.totalAmount.toDisplayString(symbol: false)),
           bold: true,
           doubleHeight: true,
+        ),
+        PrintText(
+          _row(
+            document.paymentMethodLabel,
+            document.totalAmount.toDisplayString(symbol: false),
+          ),
         ),
         PrintText(_divider()),
       ];
@@ -168,11 +226,25 @@ class DocumentLayout {
     ];
   }
 
+  /// O pé do papel: os dois códigos, o agradecimento e o aviso legal.
+  ///
+  /// O CODE 128 é o que o caixa bipa — sai como imagem, desenhada no canal
+  /// (`printer_channel.dart`), porque pelo SDK ele não decodifica neste
+  /// aparelho. O QR vai pelo SDK mesmo, que aqui funciona: conferido no M10 em
+  /// 10/09/2026 (§ "Como cada símbolo ficou" do checklist). Ele carrega o
+  /// mesmo código da venda — é o mesmo dado em outra forma, para quem tiver
+  /// celular na mão e não leitor.
   List<PrintCommand> _footer(PrintedDocument document) => <PrintCommand>[
         PrintBarcode(document.saleBarcode),
         PrintText(document.saleBarcode, align: PrintAlign.center),
         PrintText(_divider()),
+        const PrintText(
+          'OBRIGADO! VOLTE SEMPRE!',
+          align: PrintAlign.center,
+          bold: true,
+        ),
         ..._wrapped(document.notice, align: PrintAlign.center),
+        PrintQrCode(document.saleBarcode, align: PrintAlign.center),
         PrintText(
           'Impresso ${formatDateTime(document.printedAt)}',
           align: PrintAlign.center,
@@ -188,6 +260,20 @@ class DocumentLayout {
   // -------------------------------------------------------------------------
 
   String _divider() => '-' * columns;
+
+  /// Largura das colunas QTD e VALOR; o que sobra é do nome do item.
+  static const int _larguraDaQuantidade = 3;
+  static const int _larguraDoValor = 10;
+
+  int get _larguraDoItem =>
+      columns - _larguraDaQuantidade - _larguraDoValor - 2;
+
+  /// As três colunas do modelo — ITEM, QTD e VALOR — alinhadas na mesma
+  /// medida do cabeçalho até a última linha.
+  String _columns(String item, String quantidade, String valor) =>
+      '${item.padRight(_larguraDoItem).substring(0, _larguraDoItem)} '
+      '${quantidade.padLeft(_larguraDaQuantidade)} '
+      '${valor.padLeft(_larguraDoValor)}';
 
   /// Rótulo à esquerda, valor à direita, preenchendo o meio com espaços.
   String _row(String left, String right) {

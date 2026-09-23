@@ -131,6 +131,7 @@ class PrintQrCode extends PrintCommand {
     this.data, {
     this.size = 4,
     this.correctionLevel = 2,
+    this.align = PrintAlign.left,
   })  : assert(size >= 1 && size <= 6, 'tamanho do QR Code vai de 1 a 6'),
         assert(
           correctionLevel >= 1 && correctionLevel <= 4,
@@ -140,6 +141,14 @@ class PrintQrCode extends PrintCommand {
   final String data;
   final int size;
   final int correctionLevel;
+
+  /// Onde o código sai na linha.
+  ///
+  /// O SDK não aceita posição para o QR — `ImpressaoQRCode(dados, tamanho,
+  /// nível)` e pronto —, então pedir `center` faz o canal desenhar o código e
+  /// mandá-lo como imagem já centralizada. `left` segue pelo SDK, que é o
+  /// caminho conferido no aparelho e o que o POC precisa exercitar.
+  final PrintAlign align;
 
   @override
   Map<String, Object?> toMap() => {

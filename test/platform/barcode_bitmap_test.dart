@@ -71,5 +71,71 @@ void main() {
       final png = await code128Png('ABC123');
       expect(png.sublist(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
     });
+
+    test('a linha do papel vira a largura da imagem, com folga nas pontas',
+        () async {
+      final png = await code128Png('ABC123', lineDots: paperDots);
+      final bytes = ByteData.sublistView(png);
+
+      // É assim que o código sai centralizado: o `ImprimeImagem` do SDK não
+      // aceita posição, então a folga é pintada dentro da própria imagem.
+      expect(bytes.getUint32(16), paperDots);
+      expect(bytes.getUint32(20), defaultBarHeightDots);
+    });
+
+    test('código mais largo que a linha sai no tamanho que tem', () async {
+      // Não encolhe nem recorta: quem escolhe o módulo é que precisa caber.
+      final largura = code128Modules(16) * 3;
+      expect(largura, greaterThan(paperDots));
+
+      final png = await code128Png(
+        'SALE-L1-7F3A9C2B',
+        modulePoints: 3,
+        lineDots: paperDots,
+      );
+      expect(ByteData.sublistView(png).getUint32(16), largura);
+    });
+  });
+
+  group('qrCodePng', () {
+    test('sai quadrado, com o lado múltiplo do módulo', () async {
+      final png = await qrCodePng('SALE-L1-7F3A9C2B');
+      final bytes = ByteData.sublistView(png);
+      final lado = bytes.getUint32(16);
+
+      expect(bytes.getUint32(20), lado);
+      expect(lado % defaultQrModulePoints, 0);
+      // Versão 1 do QR tem 21 módulos por linha.
+      expect(lado, 21 * defaultQrModulePoints);
+    });
+
+    test('dado maior usa uma versão maior do código', () async {
+      final curto = ByteData.sublistView(await qrCodePng('A')).getUint32(16);
+      final longo = ByteData.sublistView(
+        await qrCodePng('CASA-DAS-BICICLETAS-TESTE'),
+      ).getUint32(16);
+
+      expect(longo, greaterThan(curto));
+    });
+
+    test('centralizado na linha, o lado do código não muda', () async {
+      final solto = ByteData.sublistView(
+        await qrCodePng('SALE-L1-7F3A9C2B'),
+      ).getUint32(16);
+
+      final bytes = ByteData.sublistView(
+        await qrCodePng('SALE-L1-7F3A9C2B', lineDots: paperDots),
+      );
+
+      // A imagem cresce para a largura do papel; a altura é a do código, que
+      // continua do mesmo tamanho — centralizar não encolhe o QR.
+      expect(bytes.getUint32(16), paperDots);
+      expect(bytes.getUint32(20), solto);
+    });
+
+    test('sai um PNG de verdade', () async {
+      final png = await qrCodePng('SALE-L1-7F3A9C2B');
+      expect(png.sublist(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
+    });
   });
 }

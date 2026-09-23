@@ -118,31 +118,46 @@ class PrinterChannel implements DocumentPrinter, PrinterDiagnostics {
     final saida = <PrintCommand>[];
 
     for (final command in commands) {
-      if (command is! PrintBarcode ||
-          command.symbology != BarcodeSymbology.code128) {
-        saida.add(command);
-        continue;
+      switch (command) {
+        // Módulo maior lê com mais folga, mas o papel de 58mm tem 384 pontos: o
+        // código de venda de hoje, com 16 caracteres, só entra com 1 ponto por
+        // módulo. Pega o maior que couber em vez de fixar um número que quebra
+        // quando o formato do código mudar.
+        case PrintBarcode(symbology: BarcodeSymbology.code128):
+          final modulo = [3, 2, 1].firstWhere(
+            (candidato) => code128Fits(command.data, modulePoints: candidato),
+            orElse: () => 1,
+          );
+
+          saida.add(
+            PrintImageBytes(
+              await code128Png(
+                command.data,
+                modulePoints: modulo,
+                barHeightDots: command.height,
+                // Centralizado dentro da imagem: o `ImprimeImagem` do SDK não
+                // recebe posição, e sem isto o código sai encostado na margem
+                // esquerda do papel.
+                lineDots: paperDots,
+              ),
+              label: command.data,
+            ),
+          );
+
+        // O QR do SDK funciona neste aparelho, mas também não aceita posição.
+        // Quem pede centralizado recebe desenho; `left` segue pelo SDK, que é
+        // o caminho que o POC exercita.
+        case PrintQrCode(align: PrintAlign.center):
+          saida.add(
+            PrintImageBytes(
+              await qrCodePng(command.data, lineDots: paperDots),
+              label: command.data,
+            ),
+          );
+
+        default:
+          saida.add(command);
       }
-
-      // Módulo maior lê com mais folga, mas o papel de 58mm tem 384 pontos: o
-      // código de venda de hoje, com 16 caracteres, só entra com 1 ponto por
-      // módulo. Pega o maior que couber em vez de fixar um número que quebra
-      // quando o formato do código mudar.
-      final modulo = [3, 2, 1].firstWhere(
-        (candidato) => code128Fits(command.data, modulePoints: candidato),
-        orElse: () => 1,
-      );
-
-      saida.add(
-        PrintImageBytes(
-          await code128Png(
-            command.data,
-            modulePoints: modulo,
-            barHeightDots: command.height,
-          ),
-          label: command.data,
-        ),
-      );
     }
 
     return saida;

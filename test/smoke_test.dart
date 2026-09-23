@@ -110,11 +110,11 @@ void main() {
     await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
     await tester.pumpAndSettle();
 
-    expect(find.text('Nova venda'), findsOneWidget);
-    expect(find.text('Leitor de código'), findsOneWidget);
-    expect(find.text('Impressora'), findsOneWidget);
+    expect(find.text('NOVA VENDA'), findsOneWidget);
+    expect(find.text('LEITOR DE CÓDIGO'), findsOneWidget);
+    expect(find.text('IMPRESSORA'), findsOneWidget);
     // O vendedor responsável fica visível o tempo todo (RF06).
-    expect(find.text('João Silva'), findsOneWidget);
+    expect(find.text('JOÃO SILVA'), findsWidgets);
   });
 
   testWidgets('token vencido não restaura a sessão', (tester) async {
@@ -136,7 +136,7 @@ void main() {
     // Volta ao repouso do terminal: o que não pode é atravessar para a venda
     // com um token que já venceu.
     expect(find.text('INICIAR VENDA'), findsOneWidget);
-    expect(find.text('Nova venda'), findsNothing);
+    expect(find.text('NOVA VENDA'), findsNothing);
   });
 
   testWidgets('o aplicativo é um MaterialApp com o título da loja',

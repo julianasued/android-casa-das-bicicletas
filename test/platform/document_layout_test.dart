@@ -91,11 +91,14 @@ void main() {
   });
 
   group('desconto', () {
-    test('subtotal e desconto aparecem apenas quando há desconto', () {
+    test('o sub-total sai sempre; o desconto, só quando existe', () {
+      // O modelo da nota trata o sub-total como linha fixa: uma nota que
+      // mostra só o total esconde a conta de quem confere no caixa.
       final semDesconto = renderCommandsAsText(
         layout.build(printedDocumentFromJson(documentJson())),
       );
-      expect(semDesconto, isNot(contains('Subtotal')));
+      expect(semDesconto, contains('Sub-total'));
+      expect(semDesconto, isNot(contains('Desconto')));
 
       final json = Map<String, Object?>.from(documentJson())
         ..['discount_amount'] = '75.00'
@@ -104,8 +107,97 @@ void main() {
       final comDesconto = renderCommandsAsText(
         layout.build(printedDocumentFromJson(json)),
       );
-      expect(comDesconto, contains('Subtotal'));
+      expect(comDesconto, contains('Sub-total'));
+      expect(comDesconto, contains('Desconto'));
       expect(comDesconto, contains('75,00'));
+    });
+
+    test('a linha do item traz o desconto entre colchetes, como no modelo', () {
+      final json = Map<String, Object?>.from(documentJson())
+        ..['discount_amount'] = '75.00'
+        ..['total_amount'] = '1425.00';
+
+      final papel = renderCommandsAsText(
+        layout.build(printedDocumentFromJson(json)),
+      );
+
+      expect(papel, contains('[Desconto]'));
+      expect(papel, contains('-75,00'));
+    });
+  });
+
+  group('o papel segue o modelo da nota', () {
+    late List<PrintCommand> commands;
+    late String papel;
+
+    setUp(() {
+      final document = printedDocumentFromJson(documentJson());
+      commands = layout.build(document);
+      papel = renderCommandsAsText(commands);
+    });
+
+    test('os rótulos saem no formato do modelo', () {
+      expect(papel, contains('Vendedor:João Silva'));
+      expect(papel, contains('VENDA:#10482'));
+      expect(papel, contains('REF:DOC1-L1-7F3A9C2B'));
+      expect(papel, contains('Data:'));
+      expect(papel, contains('Hora:'));
+    });
+
+    test('sem cliente, o papel diz isso em vez de omitir a linha', () {
+      expect(papel, contains('Cliente:nao informado'));
+    });
+
+    test('os itens saem em três colunas, alinhadas com o cabeçalho', () {
+      final linhas = papel.split('\n');
+      final cabecalho = linhas.firstWhere((l) => l.startsWith('ITEM'));
+      final item = linhas.firstWhere((l) => l.startsWith('Pneu Aro 15'));
+
+      // A coluna do valor termina na mesma coluna nas duas linhas: é o que faz
+      // o papel ler como tabela, e não como texto desalinhado.
+      expect(cabecalho.trimRight().length, item.trimRight().length);
+      expect(cabecalho, endsWith('VALOR'));
+      expect(item, endsWith('500,00'));
+    });
+
+    test('o preço unitário só aparece quando a quantidade não é 1', () {
+      // No JSON de referência o primeiro item tem quantidade 2.
+      expect(papel, contains('2 x 250,00'));
+
+      final json = Map<String, Object?>.from(documentJson());
+      final itens = List<Map<String, Object?>>.from(
+        (json['items']! as List<Object?>).cast<Map<String, Object?>>(),
+      );
+      itens[0] = Map<String, Object?>.from(itens[0])
+        ..['quantity'] = '1.000'
+        ..['line_total'] = '250.00';
+      json['items'] = [itens[0]];
+
+      final umaUnidade = renderCommandsAsText(
+        layout.build(printedDocumentFromJson(json)),
+      );
+      // Com uma unidade, o unitário é o próprio total — repetir é ruído.
+      expect(umaUnidade, isNot(contains('x 250,00')));
+    });
+
+    test('a forma de pagamento fecha o bloco do total', () {
+      final linhas = papel.split('\n');
+      final total = linhas.indexWhere((l) => l.startsWith('Total'));
+      final pagamento = linhas.indexWhere((l) => l.startsWith('PIX'));
+
+      expect(total, isNonNegative);
+      expect(pagamento, total + 1);
+    });
+
+    test('imprime o QR do código da venda, além do código de barras', () {
+      final qrs = commands.whereType<PrintQrCode>().toList();
+
+      expect(qrs, hasLength(1));
+      expect(qrs.single.data, 'SALE-L1-7F3A9C2B');
+    });
+
+    test('agradece no pé, como no modelo', () {
+      expect(papel, contains('OBRIGADO! VOLTE SEMPRE!'));
     });
   });
 

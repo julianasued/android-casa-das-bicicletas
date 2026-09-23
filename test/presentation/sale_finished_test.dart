@@ -211,4 +211,29 @@ void main() {
       );
     });
   });
+
+  group('comprovante (visual de papel térmico)', () {
+    testWidgets('VER COMPROVANTE abre a tela no visual da nota impressa',
+        (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      await rolarAte(tester, find.text('VER COMPROVANTE'));
+      await tester.tap(find.text('VER COMPROVANTE'));
+      await tester.pumpAndSettle();
+
+      // A mesma referência que saiu (ou vai sair) no papel — não um número
+      // recalculado por esta tela.
+      expect(find.text('SALE-L1-7F3A9C2B'), findsOneWidget);
+      expect(find.textContaining('Vendedor:'), findsOneWidget);
+    });
+
+    testWidgets('sem documento, o botão não aparece', (tester) async {
+      final semDocumento = saleWithDocumentFromJson(
+        saleJson()..remove('document_1'),
+      );
+      await montar(tester, SaleFinished(result: semDocumento));
+
+      expect(find.text('VER COMPROVANTE'), findsNothing);
+    });
+  });
 }

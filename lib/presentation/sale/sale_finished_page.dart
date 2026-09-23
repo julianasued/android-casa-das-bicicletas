@@ -28,6 +28,7 @@ import '../../core/result.dart';
 import '../../domain/entities/printed_document.dart';
 import '../../domain/entities/sale.dart';
 import '../../domain/usecases/create_sale.dart';
+import '../receipt/receipt_page.dart';
 import '../shared/brand.dart';
 import '../shared/feedback.dart';
 
@@ -505,6 +506,10 @@ class _CorpoLargo extends StatelessWidget {
                   ocupado: reimprimindo,
                   onPressed: onReimprimir,
                 ),
+                if (finished.result.document case final documento?) ...[
+                  const SizedBox(height: 10),
+                  _BotaoDeComprovante(document: documento, finished: finished),
+                ],
               ],
             ),
           ),
@@ -597,6 +602,10 @@ class _CorpoEstreito extends StatelessWidget {
                   ocupado: reimprimindo,
                   onPressed: onReimprimir,
                 ),
+                if (finished.result.document case final documento?) ...[
+                  const SizedBox(height: 10),
+                  _BotaoDeComprovante(document: documento, finished: finished),
+                ],
                 const SizedBox(height: 10),
                 _CartoesDeDados(sale: sale, compacto: true),
                 const SizedBox(height: 10),
@@ -1075,6 +1084,46 @@ class _BotaoDeReimpressao extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Abre o comprovante no visual de papel térmico (mesmos dados do documento
+/// que já foi — ou vai ser — impresso).
+///
+/// Só aparece quando há documento: sem ele não existe o que mostrar, e a tela
+/// de comprovante não inventa dado nenhum.
+class _BotaoDeComprovante extends StatelessWidget {
+  const _BotaoDeComprovante({required this.document, required this.finished});
+
+  final PrintedDocument document;
+  final SaleFinished finished;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 56,
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ReceiptPage(
+              document: document,
+              discountPercentHundredths: finished.discountPercentHundredths,
+            ),
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          backgroundColor: _Cor.cartao,
+          foregroundColor: _Cor.texto,
+          side: const BorderSide(color: _Cor.borda, width: 2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        icon: const Icon(Icons.receipt_long_outlined, size: 22),
+        label: const Text(
+          'VER COMPROVANTE',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: .6),
         ),
       ),
     );
