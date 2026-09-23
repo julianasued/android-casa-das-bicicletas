@@ -620,18 +620,24 @@ class _Teclado extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Coluna dos dígitos: três por linha, e o zero ocupando a última
-          // inteira, como na referência.
+          // Coluna dos dígitos: três por linha, e o zero sozinho na célula
+          // do meio da última.
           Expanded(
             flex: 3,
             child: Column(
-              // Sem isto o `0` sai do tamanho do texto em vez da largura da
-              // coluna: `Column` centraliza, não estica.
+              // Sem isto as linhas saem do tamanho do texto em vez da
+              // largura da coluna: `Column` centraliza, não estica.
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (var linha = 0; linha < 3; linha++) ...[
                   Expanded(
                     child: Row(
+                      // Toda tecla ocupa a linha inteira. Sem isto cada uma se
+                      // dimensiona pelo próprio conteúdo, e o `1` — o único
+                      // dígito sem a linha de letras — sai mais baixo que os
+                      // vizinhos; quanto maior a fonte do sistema, maior a
+                      // diferença.
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         for (var coluna = 0; coluna < 3; coluna++) ...[
                           if (coluna > 0) SizedBox(width: espaco),
@@ -651,12 +657,33 @@ class _Teclado extends StatelessWidget {
                   ),
                   SizedBox(height: espaco),
                 ],
+                // O zero passa pela mesma grade das outras linhas, e não
+                // solto na coluna, porque solto ele esticava pelas três
+                // células: virava o maior alvo do teclado sem ser a tecla mais
+                // usada. Na célula do meio ele fica do tamanho dos outros
+                // dígitos e alinhado com o `2`, o `5` e o `8`.
                 Expanded(
-                  child: _Tecla(
-                    rotulo: '0',
-                    letras: '',
-                    compacto: compacto,
-                    onPressed: submetendo ? null : () => onDigit('0'),
+                  child: Row(
+                    // Mesmo motivo das linhas de cima: o `0` também não tem
+                    // letras, então precisa da altura da linha para ficar do
+                    // tamanho dos outros dígitos.
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var coluna = 0; coluna < 3; coluna++) ...[
+                        if (coluna > 0) SizedBox(width: espaco),
+                        Expanded(
+                          child: coluna == 1
+                              ? _Tecla(
+                                  rotulo: '0',
+                                  letras: '',
+                                  compacto: compacto,
+                                  onPressed:
+                                      submetendo ? null : () => onDigit('0'),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
