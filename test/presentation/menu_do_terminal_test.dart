@@ -141,6 +141,10 @@ void main() {
       await tester.tap(find.text('NOVA VENDA'));
       await tester.pumpAndSettle();
 
+      // Passa pela confirmação de quem é o responsável antes da tela.
+      await tester.tap(find.text('SIM, CONTINUAR'));
+      await tester.pumpAndSettle();
+
       expect(find.text('rota: /venda'), findsOneWidget);
     });
 

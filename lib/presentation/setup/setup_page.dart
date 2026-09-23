@@ -339,7 +339,7 @@ class _Cabecalho extends StatelessWidget {
         child: Row(
           children: [
             if (onVoltar != null) ...[
-              _BotaoVoltar(onPressed: onVoltar!, compacto: compacto),
+              BotaoVoltar(onPressed: onVoltar!, compacto: compacto),
               SizedBox(width: compacto ? 10 : 16),
             ],
             Flexible(
@@ -385,41 +385,6 @@ class _Cabecalho extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BotaoVoltar extends StatelessWidget {
-  const _BotaoVoltar({required this.onPressed, required this.compacto});
-
-  final VoidCallback onPressed;
-  final bool compacto;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: OutlinedButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.chevron_left, color: Marca.amarelo, size: 22),
-        style: OutlinedButton.styleFrom(
-          backgroundColor: Colors.white.withValues(alpha: .14),
-          foregroundColor: Colors.white,
-          padding: EdgeInsets.symmetric(horizontal: compacto ? 10 : 16),
-          side: BorderSide(color: Colors.white.withValues(alpha: .3), width: 2),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-        label: const Text(
-          'VOLTAR',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            letterSpacing: .8,
-          ),
         ),
       ),
     );

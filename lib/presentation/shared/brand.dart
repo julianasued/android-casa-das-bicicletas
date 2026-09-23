@@ -145,6 +145,71 @@ class BarraDoTerminal extends StatelessWidget {
   }
 }
 
+/// Voltar à etapa anterior, no padrão das telas do terminal.
+///
+/// Mora aqui porque mais de uma tela precisa dele e porque o fluxo (§19) pede
+/// que a volta seja **visível**: o aplicativo roda em modo quiosque, com a
+/// barra do Android escondida, e o gesto do sistema é justamente o
+/// comportamento oculto que não pode ser a única saída.
+class BotaoVoltar extends StatelessWidget {
+  const BotaoVoltar({
+    required this.onPressed,
+    required this.compacto,
+    this.sobreClaro = false,
+    super.key,
+  });
+
+  final VoidCallback onPressed;
+  final bool compacto;
+
+  /// Sobre fundo claro o branco translúcido some; aí o botão veste a borda e a
+  /// tinta da marca, com a seta no laranja que essa tela já usa.
+  final bool sobreClaro;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(
+          Icons.chevron_left,
+          color: sobreClaro ? Marca.laranja : Marca.amarelo,
+          size: 22,
+        ),
+        style: OutlinedButton.styleFrom(
+          // O tema manda `Size.fromHeight(56)`, que é largura **infinita**:
+          // basta este botão cair num lugar sem largura definida — um
+          // `Positioned` sem `right`, por exemplo — para a tela não montar.
+          // Aqui a largura sai do rótulo, como um botão de barra deve fazer.
+          minimumSize: const Size(0, 44),
+          backgroundColor:
+              sobreClaro ? Colors.white : Colors.white.withValues(alpha: .14),
+          foregroundColor: sobreClaro ? Marca.azul : Colors.white,
+          padding: EdgeInsets.symmetric(horizontal: compacto ? 10 : 16),
+          side: BorderSide(
+            color: sobreClaro
+                ? Marca.bordaCampo
+                : Colors.white.withValues(alpha: .3),
+            width: 2,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        label: const Text(
+          'VOLTAR',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            letterSpacing: .8,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Fundo pontilhado do bloco branco.
 class PadraoDeBolinhas extends CustomPainter {
   const PadraoDeBolinhas();

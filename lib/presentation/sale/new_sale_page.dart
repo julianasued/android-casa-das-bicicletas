@@ -190,13 +190,30 @@ class _NewSalePageState extends State<NewSalePage> {
 
     final destino = await showModalBottomSheet<String>(
       context: context,
+      // A folha padrão reserva 9/16 da altura, e a lista passa disso na tela
+      // do M10: sem soltar o limite, a última opção nasce fora da folha e só
+      // aparece para quem adivinha que dá para rolar.
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * .85,
+      ),
       builder: (context) => SafeArea(
-        // Rolável: a folha padrão reserva 9/16 da altura, e a lista já passa
-        // disso na tela do M10 — sem isto, a última opção fica cortada.
+        // Rolável ainda assim: com a fonte do sistema ampliada a lista volta a
+        // passar da altura, e aí rolar é melhor que cortar.
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Primeiro porque é a única volta desta tela: as outras
+              // entradas são ferramentas, esta é o caminho de quem selecionou
+              // o vendedor errado.
+              ListTile(
+                leading: const Icon(Icons.switch_account),
+                title: const Text('Trocar vendedor'),
+                subtitle: const Text('Mantém o terminal aberto'),
+                onTap: () => Navigator.of(context).pop('vendedor'),
+              ),
+              const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.search),
                 title: const Text('Buscar produto no catálogo'),
@@ -239,6 +256,10 @@ class _NewSalePageState extends State<NewSalePage> {
     );
 
     if (!mounted || destino == null) return;
+    if (destino == 'vendedor') {
+      await _trocarVendedor();
+      return;
+    }
     if (destino == 'descartar') {
       await _confirmDiscard();
       return;
@@ -248,6 +269,50 @@ class _NewSalePageState extends State<NewSalePage> {
       return;
     }
     await navigator.pushNamed(destino);
+  }
+
+  /// Volta para a seleção de vendedor sem fechar o terminal.
+  ///
+  /// Quem selecionou o nome errado só tinha o SAIR, que derruba a autenticação
+  /// do aparelho e obriga a digitar a senha do terminal de novo — voltar uma
+  /// etapa custava reiniciar o fluxo (§19). Derruba só a sessão do vendedor,
+  /// como o TROCAR do menu.
+  ///
+  /// A pilha é limpa de propósito: a sessão do vendedor já não existe quando a
+  /// tela nova abre, e deixar esta venda embaixo seria deixar um rascunho sem
+  /// dono ao alcance do botão do sistema.
+  Future<void> _trocarVendedor() async {
+    if (!_controller.draft.isEmpty) {
+      final trocar = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Trocar de vendedor com a venda aberta?'),
+          content: const Text(
+            'Os itens lançados serão perdidos. A venda ainda não foi registrada.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Continuar vendendo'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Trocar'),
+            ),
+          ],
+        ),
+      );
+      if (!(trocar ?? false) || !mounted) return;
+    }
+
+    final deps = context.deps;
+    final navigator = Navigator.of(context);
+    await deps.session.clearSession();
+    if (!mounted) return;
+    await navigator.pushNamedAndRemoveUntil(
+      AppRoutes.sellerSelection,
+      (_) => false,
+    );
   }
 
   /// Encerra o turno no aparelho: a próxima venda exige a senha do terminal.

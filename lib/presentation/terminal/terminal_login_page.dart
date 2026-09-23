@@ -174,6 +174,12 @@ class _TerminalLoginPageState extends State<TerminalLoginPage> {
                 flex: compacto ? 7 : 7,
                 child: _BlocoBranco(
                   compacto: compacto,
+                  // Só quando há para onde voltar. Hoje é sempre a tela
+                  // inicial, mas um botão que não leva a lugar nenhum seria
+                  // pior que botão nenhum.
+                  onVoltar: Navigator.of(context).canPop()
+                      ? () => Navigator.of(context).pop()
+                      : null,
                   controller: _passwordController,
                   focusNode: _focus,
                   obscured: _obscured,
@@ -217,6 +223,7 @@ class _TerminalLoginPageState extends State<TerminalLoginPage> {
 class _BlocoBranco extends StatelessWidget {
   const _BlocoBranco({
     required this.compacto,
+    required this.onVoltar,
     required this.controller,
     required this.focusNode,
     required this.obscured,
@@ -229,6 +236,10 @@ class _BlocoBranco extends StatelessWidget {
   });
 
   final bool compacto;
+
+  /// Volta para a tela inicial; `null` quando não há pilha abaixo.
+  final VoidCallback? onVoltar;
+
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool obscured;
@@ -255,8 +266,30 @@ class _BlocoBranco extends StatelessWidget {
           right: 0,
           top: 0,
           bottom: alturaDaOnda,
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Ocupa altura de verdade, em vez de flutuar sobre o bloco: o
+              // miolo é centralizado e o logo sobe até aqui, então um botão
+              // por cima ficaria encavalado nele no M10. Ainda por cima, a
+              // área rolável cobre o bloco inteiro e engoliria o toque.
+              if (onVoltar != null)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    compacto ? 12 : 24,
+                    compacto ? 10 : 16,
+                    0,
+                    0,
+                  ),
+                  child: BotaoVoltar(
+                    onPressed: onVoltar!,
+                    compacto: compacto,
+                    sobreClaro: true,
+                  ),
+                ),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) => SingleChildScrollView(
               // Rolável só quando precisa: com a fonte do sistema ampliada o
               // conteúdo passa da altura, e aí rolar é melhor que cortar.
               padding: EdgeInsets.symmetric(horizontal: compacto ? 16 : 24),
@@ -287,6 +320,9 @@ class _BlocoBranco extends StatelessWidget {
                 ),
               ),
             ),
+                ),
+              ),
+            ],
           ),
         ),
         Positioned(

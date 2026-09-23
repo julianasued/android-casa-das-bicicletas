@@ -30,6 +30,7 @@ import '../../domain/entities/sale.dart';
 import '../../domain/usecases/create_sale.dart';
 import '../receipt/receipt_page.dart';
 import '../shared/brand.dart';
+import '../shared/confirmacao_do_vendedor.dart';
 import '../shared/feedback.dart';
 
 /// Paleta da tela, como na referência.
@@ -120,8 +121,40 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
       .pushNamedAndRemoveUntil(AppRoutes.welcome, (_) => false);
 
   /// Outra venda, do zero: a montagem nasce com o rascunho vazio.
-  void _novaVenda() => Navigator.of(context)
-      .pushNamedAndRemoveUntil(AppRoutes.newSale, (_) => false);
+  ///
+  /// Confirma o responsável antes de abrir. É aqui que o turno costuma virar —
+  /// a venda acabou, o balcão trocou de gente —, e a sessão do vendedor não
+  /// muda sozinha: sem a pergunta, a venda seguinte sai no nome de quem fez a
+  /// anterior.
+  Future<void> _novaVenda() async {
+    final vendedor = context.deps.session.seller?.name;
+    final navigator = Navigator.of(context);
+
+    if (vendedor == null) {
+      await navigator.pushNamedAndRemoveUntil(AppRoutes.newSale, (_) => false);
+      return;
+    }
+
+    final resposta = await confirmarVendedor(context, vendedor: vendedor);
+    if (!mounted || resposta == null) return;
+
+    switch (resposta) {
+      case ConfirmacaoDoVendedor.confirmado:
+        await navigator.pushNamedAndRemoveUntil(
+          AppRoutes.newSale,
+          (_) => false,
+        );
+      case ConfirmacaoDoVendedor.trocar:
+        // Derruba só a sessão do vendedor: o terminal continua aberto e a
+        // senha do aparelho não volta a ser pedida.
+        await context.deps.session.clearSession();
+        if (!mounted) return;
+        await navigator.pushNamedAndRemoveUntil(
+          AppRoutes.sellerSelection,
+          (_) => false,
+        );
+    }
+  }
 
   Future<void> _sair() async {
     final deps = context.deps;

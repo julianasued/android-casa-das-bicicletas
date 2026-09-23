@@ -22,6 +22,7 @@ import '../../core/result.dart';
 import '../../domain/entities/pending_operation.dart';
 import '../../domain/ports/document_printer.dart';
 import '../shared/brand.dart';
+import '../shared/confirmacao_do_vendedor.dart';
 
 /// Paleta da tela, como na referência.
 class _Cor {
@@ -106,6 +107,32 @@ class _HomePageState extends State<HomePage> {
     await Navigator.of(context).pushNamed(rota);
     if (!mounted) return;
     await _lerAparelho();
+  }
+
+  /// Confirma quem é o responsável e abre a venda.
+  ///
+  /// A pergunta vem antes da tela, e não dentro dela, porque a venda nasce
+  /// vinculada a quem está na sessão: corrigir depois de lançada é alteração
+  /// de venda, não um toque. Desistir (tocar fora) não abre nada nem troca
+  /// ninguém — o menu continua como estava.
+  Future<void> _novaVenda() async {
+    final vendedor = context.deps.session.seller?.name;
+    if (vendedor == null) {
+      // Sem vendedor em sessão não há o que confirmar; o roteamento inicial
+      // já teria mandado esta tela para a seleção.
+      await _abrir(AppRoutes.newSale);
+      return;
+    }
+
+    final resposta = await confirmarVendedor(context, vendedor: vendedor);
+    if (!mounted || resposta == null) return;
+
+    switch (resposta) {
+      case ConfirmacaoDoVendedor.confirmado:
+        await _abrir(AppRoutes.newSale);
+      case ConfirmacaoDoVendedor.trocar:
+        await _trocarVendedor();
+    }
   }
 
   /// Troca de vendedor sem fechar o terminal.
@@ -226,7 +253,7 @@ class _HomePageState extends State<HomePage> {
                       versao: deps.environment.appVersion,
                       host: _hostDaApi(deps.apiClient.baseUrl),
                       onTrocar: _trocarVendedor,
-                      onNovaVenda: () => _abrir(AppRoutes.newSale),
+                      onNovaVenda: _novaVenda,
                       onLeitor: () => _abrir(AppRoutes.scanner),
                       onImpressora: () => _abrir(AppRoutes.printerDiagnostics),
                       onTeste: () => _abrir(AppRoutes.m10Poc),
