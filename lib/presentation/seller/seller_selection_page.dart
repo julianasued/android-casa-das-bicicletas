@@ -20,6 +20,7 @@ import '../../app/routes.dart';
 import '../../core/failure.dart';
 import '../../core/result.dart';
 import '../../domain/entities/seller.dart';
+import '../terminal/seller_login_page.dart';
 import '../shared/brand.dart';
 import '../shared/feedback.dart';
 
@@ -84,44 +85,23 @@ class _SellerSelectionPageState extends State<SellerSelectionPage> {
     });
   }
 
+  /// Escolher o nome é dizer quem se diz ser; o PIN vem na tela seguinte.
+  ///
+  /// A sessão não abre aqui. Antes abria: tocar no nome bastava, e era esse
+  /// nome que ia em toda venda. Agora a lista só encaminha, e quem abre a
+  /// sessão é a tela de senha, com a credencial da própria pessoa (§2.3).
+  ///
+  /// A rota é empurrada **direta**, e não por nome. Rota nomeada com argumento
+  /// tipado depende de um `is` acertar em tempo de execução; quando ele erra,
+  /// o gerador devolve `null` e o Flutter derruba a tela com "could not find a
+  /// generator for route" — bem na frente do cliente. Aqui o construtor exige
+  /// o `Seller`, e o compilador garante o que o `is` só torcia para dar certo.
   Future<void> _select(Seller seller) async {
-    final deps = context.deps;
-    final navigator = Navigator.of(context);
-
-    setState(() {
-      _selecting = seller.id;
-      _abrindo = seller.name;
-    });
-    final result = await deps.selectSeller(seller.id);
-
-    if (!mounted) return;
-    setState(() {
-      _selecting = null;
-      _abrindo = null;
-    });
-
-    switch (result) {
-      case Ok():
-        // A loja é buscada agora porque o código dela (`L1`) entra no código de
-        // barras da venda e no cabeçalho do documento. Falhar aqui não impede
-        // de vender: o servidor devolve o documento pronto de qualquer jeito.
-        await deps.auth.currentStore();
-        if (!mounted) return;
-        // Direto para a venda (§5 e §19): o vendedor selecionou o nome para
-        // vender, não para escolher no menu o que fazer em seguida. As
-        // ferramentas seguem alcançáveis pelo menu do cabeçalho da venda.
-        await navigator.pushNamedAndRemoveUntil(
-            AppRoutes.newSale, (_) => false);
-      case Err(:final failure):
-        if (failure is UnauthenticatedFailure) {
-          await navigator.pushNamedAndRemoveUntil(
-            AppRoutes.welcome,
-            (_) => false,
-          );
-          return;
-        }
-        showFailure(context, failure);
-    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SellerLoginPage(vendedor: seller),
+      ),
+    );
   }
 
   @override

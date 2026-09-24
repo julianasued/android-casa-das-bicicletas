@@ -1,9 +1,13 @@
 /// Rotas do aplicativo.
 ///
 /// Nomeadas e resolvidas em um lugar só: o fluxo do terminal é linear
-/// (configuração → tela inicial → senha do terminal → seleção do vendedor →
-/// venda) e cada
-/// tela precisa saber para onde volta quando a sessão cai.
+/// (configuração → tela inicial → seleção do vendedor → PIN dele → venda) e
+/// cada tela precisa saber para onde volta quando a sessão cai.
+///
+/// A tela de PIN não tem rota nomeada de propósito: ela exige um `Seller`, e
+/// um argumento tipado atrás de um nome vira `null` no gerador quando o `is`
+/// erra — que é a falha de rota que derruba a tela. Quem a abre é a seleção de
+/// vendedor, empurrando a rota direta.
 library;
 
 class AppRoutes {
@@ -14,7 +18,6 @@ class AppRoutes {
 
   /// Repouso do terminal: sem ninguém autenticado, uma ação só.
   static const String welcome = '/inicial';
-  static const String terminalLogin = '/terminal';
   static const String sellerSelection = '/vendedores';
   static const String home = '/inicio';
   static const String newSale = '/venda';

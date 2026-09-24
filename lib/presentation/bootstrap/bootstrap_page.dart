@@ -40,10 +40,13 @@ class _BootstrapPageState extends State<BootstrapPage> {
     if (!mounted) return;
 
     final session = deps.session;
+    // O `terminal_token` deixou de decidir rota: ele é do aparelho e a lista de
+    // nomes abre só com o `X-Device-Id`. O que decide é haver **vendedor
+    // autenticado** — e sem ele a tela inicial é o repouso, porque quem chega
+    // escolhe o nome e digita o PIN dele (§2.3).
     final route = switch (session) {
       _ when !session.isConfigured => AppRoutes.setup,
-      _ when !session.hasTerminalAuth => AppRoutes.welcome,
-      _ when !session.hasSellerSession => AppRoutes.sellerSelection,
+      _ when !session.hasSellerSession => AppRoutes.welcome,
       _ => AppRoutes.home,
     };
 

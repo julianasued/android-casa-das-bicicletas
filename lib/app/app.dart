@@ -14,7 +14,6 @@ import '../presentation/sale/sale_finished_page.dart';
 import '../presentation/scanner/scanner_page.dart';
 import '../presentation/seller/seller_selection_page.dart';
 import '../presentation/setup/setup_page.dart';
-import '../presentation/terminal/terminal_login_page.dart';
 import '../presentation/welcome/welcome_page.dart';
 import 'dependencies.dart';
 import 'routes.dart';
@@ -47,7 +46,6 @@ class CasaDasBicicletasApp extends StatelessWidget {
       AppRoutes.bootstrap => const BootstrapPage(),
       AppRoutes.setup => const SetupPage(),
       AppRoutes.welcome => const WelcomePage(),
-      AppRoutes.terminalLogin => const TerminalLoginPage(),
       AppRoutes.sellerSelection => SellerSelectionPage(
           sellers: settings.arguments is List<Seller>
               ? settings.arguments! as List<Seller>

@@ -86,18 +86,21 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<Result<SellerSession>> selectSeller(int sellerId) async {
+  Future<Result<SellerSession>> selectSeller({
+    required Seller seller,
+    required String password,
+  }) async {
     final response = await _api.post(
       ApiEndpoints.selectSeller,
-      body: {'seller_id': sellerId},
+      body: {'seller_id': seller.id, 'password': password},
       requiresStore: false,
     );
 
     return mapApiResponse(response, (result) async {
-      final data = result.data;
-      final seller = _knownSellers[sellerId] ??
-          Seller(id: sellerId, name: 'Vendedor $sellerId');
-      final session = sellerSessionFromJson(data, seller: seller);
+      // Quem chama já sabe de quem é o PIN que acabou de ser digitado. Tirar o
+      // nome de um cache de listagem fazia a sessão carimbar "Vendedor 12" na
+      // venda quando a lista não estava em memória.
+      final session = sellerSessionFromJson(result.data, seller: seller);
       await _session.saveSession(session);
       return session;
     });

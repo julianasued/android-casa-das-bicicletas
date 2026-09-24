@@ -38,38 +38,58 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  group('senha do terminal', () {
-    Future<AppDependencies> abrirSenha(WidgetTester tester) async {
-      final deps = buildTestDependencies(transport: servidor());
+  group('PIN do vendedor', () {
+    /// Aplicativo inteiro, pelo caminho de verdade: inicial → lista → nome.
+    Future<AppDependencies> abrirPin(WidgetTester tester) async {
+      final deps = buildTestDependencies(
+        transport: RecordingTransport((request) {
+          if (request.url.path.contains('sellers')) {
+            return jsonResponse(const {
+              'results': [
+                {'id': 12, 'name': 'Juliana'},
+              ],
+            });
+          }
+          return jsonResponse(const {'results': <Object?>[]});
+        }),
+      );
       await deps.session.saveConfiguration(deviceId: 'M10-0001', storeId: 1);
 
       await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
       await tester.pumpAndSettle();
       await tocar(tester, find.text('INICIAR VENDA'));
+      await tocar(tester, find.text('JULIANA'));
       return deps;
     }
 
-    testWidgets('oferece a volta para a tela inicial', (tester) async {
-      await abrirSenha(tester);
-      expect(find.text('Senha do terminal'), findsOneWidget);
+    testWidgets('o fluxo chega ao PIN sem pedir senha de aparelho',
+        (tester) async {
+      await abrirPin(tester);
+
+      expect(find.text('INSIRA A SENHA DO VENDEDOR'), findsOneWidget);
+      expect(find.text('INSIRA A SENHA DO TERMINAL'), findsNothing);
+    });
+
+    testWidgets('oferece a volta para a lista de nomes', (tester) async {
+      await abrirPin(tester);
 
       expect(find.text('VOLTAR'), findsOneWidget);
       await tocar(tester, find.text('VOLTAR'));
 
-      expect(find.text('INICIAR VENDA'), findsOneWidget);
-      expect(find.text('Senha do terminal'), findsNothing);
+      // Voltar aqui é trocar de pessoa, não sair do aparelho.
+      expect(find.text('SELECIONE O VENDEDOR'), findsOneWidget);
+      expect(find.text('INSIRA A SENHA DO VENDEDOR'), findsNothing);
     });
 
     testWidgets('voltar não apaga a configuração do aparelho', (tester) async {
-      final deps = await abrirSenha(tester);
+      final deps = await abrirPin(tester);
       await tocar(tester, find.text('VOLTAR'));
 
-      // A volta é de navegação, não de sessão: o aparelho continua configurado
-      // e a próxima tentativa não passa pela configuração.
       expect(deps.session.deviceId, 'M10-0001');
       expect(deps.session.storeId, 1);
-      await tocar(tester, find.text('INICIAR VENDA'));
-      expect(find.text('Senha do terminal'), findsOneWidget);
+      // E dá para escolher de novo, sem passar por senha de aparelho nenhuma.
+      await tocar(tester, find.text('JULIANA'));
+      expect(find.text('INSIRA A SENHA DO VENDEDOR'), findsOneWidget);
     });
   });
 

@@ -232,7 +232,7 @@ void main() {
       expect(deps.session.storeId, isNull);
     });
 
-    testWidgets('servidor que responde grava e abre a senha do terminal',
+    testWidgets('servidor que responde grava e volta ao repouso',
         (tester) async {
       final deps = await abrir(
         tester,
@@ -253,7 +253,8 @@ void main() {
 
       expect(deps.session.storeId, 1);
       expect(deps.session.deviceId, sugestaoDoAparelho);
-      expect(find.text('rota: /terminal'), findsOneWidget);
+      // Volta ao repouso: daqui quem chega escolhe o nome e digita o PIN.
+      expect(find.text('rota: /inicial'), findsOneWidget);
     });
   });
 }

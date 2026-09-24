@@ -16,7 +16,7 @@ import 'package:casa_das_bicicletas/presentation/sale/customer_picker_page.dart'
 import 'package:casa_das_bicicletas/presentation/sale/new_sale_page.dart';
 import 'package:casa_das_bicicletas/presentation/sale/sale_finished_page.dart';
 import 'package:casa_das_bicicletas/presentation/seller/seller_selection_page.dart';
-import 'package:casa_das_bicicletas/presentation/terminal/terminal_login_page.dart';
+import 'package:casa_das_bicicletas/presentation/terminal/seller_login_page.dart';
 import 'package:casa_das_bicicletas/presentation/welcome/welcome_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -127,7 +127,9 @@ void main() {
 
   final telas = <String, Widget Function()>{
     'inicial': () => const WelcomePage(),
-    'senha do terminal': () => const TerminalLoginPage(),
+    'senha do vendedor': () => const SellerLoginPage(
+          vendedor: Seller(id: 12, name: 'João Carlos da Silva Pereira'),
+        ),
     'seleção de vendedor': () => const SellerSelectionPage(
           sellers: [
             Seller(id: 12, name: 'João Carlos da Silva Pereira'),

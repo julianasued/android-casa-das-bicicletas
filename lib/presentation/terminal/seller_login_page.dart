@@ -1,14 +1,14 @@
-/// Abertura do terminal com a senha do aparelho (API §2.1).
+/// Abertura do turno com o PIN do vendedor (API §2.3).
 ///
-/// A senha é **do terminal**, não do vendedor — quem digita é quem abre o
-/// aparelho no começo do turno. A tela deixa isso explícito porque a confusão
-/// com credencial pessoal é o caminho mais curto para alguém emprestar a senha.
+/// A senha é **da pessoa**, não do aparelho. Antes esta tela pedia a senha do
+/// terminal: uma credencial que todo mundo do balcão sabia, digitada uma vez e
+/// repassada de boca em boca. O que a venda carimbava era o nome em que alguém
+/// encostou o dedo na lista — e, com a comissão saindo do vendedor da venda
+/// (RF19), nome errado é dinheiro no bolso errado.
 ///
-/// O teclado é desenhado na tela em vez de se usar o do sistema: no M10, o
-/// teclado do Android cobre metade da área útil e some com o campo que está
-/// sendo preenchido. Quem precisar de senha com letra tem o botão de teclado do
-/// aparelho no canto do campo — a senha do terminal é cadastrada pelo Dono e
-/// nada no contrato obriga que seja numérica.
+/// O teclado é numérico e é desenhado na tela: o PIN é numérico justamente
+/// porque no M10 o teclado do Android cobre metade da área útil e some com o
+/// campo que está sendo preenchido.
 /// A aparência segue `fluxo-frontend/handoff/tela-senha.html`: o azul #0020ad,
 /// o amarelo da marca, o laranja da ação, a barra cinza com o terminal e o
 /// relógio, a onda separando o bloco branco do teclado e as teclas com sombra
@@ -27,19 +27,23 @@ import '../../core/result.dart';
 import '../../domain/entities/seller.dart';
 import '../shared/brand.dart';
 
-class TerminalLoginPage extends StatefulWidget {
-  const TerminalLoginPage({super.key});
+class SellerLoginPage extends StatefulWidget {
+  const SellerLoginPage({required this.vendedor, super.key});
+
+  /// Quem foi escolhido na tela anterior. O nome fica à vista o tempo todo:
+  /// digitar o PIN achando que é outra pessoa é o erro que esta tela existe
+  /// para evitar.
+  final Seller vendedor;
 
   @override
-  State<TerminalLoginPage> createState() => _TerminalLoginPageState();
+  State<SellerLoginPage> createState() => _SellerLoginPageState();
 }
 
-class _TerminalLoginPageState extends State<TerminalLoginPage> {
+class _SellerLoginPageState extends State<SellerLoginPage> {
   final _passwordController = TextEditingController();
   final _focus = FocusNode();
   bool _submitting = false;
   bool _obscured = true;
-  bool _systemKeyboard = false;
   Failure? _failure;
 
   /// Relógio do cabeçalho, como na referência.
@@ -93,37 +97,35 @@ class _TerminalLoginPageState extends State<TerminalLoginPage> {
 
     final deps = context.deps;
     final navigator = Navigator.of(context);
-    final storeId = deps.session.storeId;
-
-    if (storeId == null) {
-      await navigator.pushNamedAndRemoveUntil(AppRoutes.setup, (_) => false);
-      return;
-    }
 
     setState(() {
       _submitting = true;
       _failure = null;
     });
 
-    final result = await deps.openTerminal(
-      storeId: storeId,
-      terminalPassword: _passwordController.text,
+    final result = await deps.selectSeller(
+      seller: widget.vendedor,
+      password: _passwordController.text,
     );
 
     if (!mounted) return;
     setState(() => _submitting = false);
 
     switch (result) {
-      case Ok(value: final List<Seller> sellers):
+      case Ok():
         _passwordController.clear();
-        await navigator.pushNamedAndRemoveUntil(
-          AppRoutes.sellerSelection,
-          (_) => false,
-          arguments: sellers,
-        );
+        // A loja é buscada agora porque o código dela (`L1`) entra no código
+        // de barras da venda e no cabeçalho do documento. Falhar aqui não
+        // impede de vender: o servidor devolve o documento pronto de qualquer
+        // jeito.
+        await deps.auth.currentStore();
+        if (!mounted) return;
+        // Direto para a venda (§5 e §19): quem digitou o PIN fez isso para
+        // vender, não para escolher no menu o que fazer em seguida.
+        await navigator.pushNamedAndRemoveUntil(AppRoutes.newSale, (_) => false);
       case Err(:final failure):
-        // A senha errada some do campo: repetir a tentativa com o que já
-        // falhou é o erro mais comum, e reexibi-la não ajuda ninguém.
+        // O PIN errado some do campo: repetir a tentativa com o que já falhou
+        // é o erro mais comum, e reexibi-lo não ajuda ninguém.
         _passwordController.clear();
         setState(() => _failure = _traduzir(failure));
     }
@@ -141,7 +143,7 @@ class _TerminalLoginPageState extends State<TerminalLoginPage> {
   /// mapeamento do 401, e mexer nisso é a pendência registrada no §24 do fluxo.
   Failure _traduzir(Failure failure) => switch (failure) {
         UnauthenticatedFailure() =>
-          const UnauthenticatedFailure('Senha do terminal incorreta.'),
+          const UnauthenticatedFailure('Senha incorreta. Tente de novo.'),
         _ => failure,
       };
 
@@ -174,28 +176,19 @@ class _TerminalLoginPageState extends State<TerminalLoginPage> {
                 flex: compacto ? 7 : 7,
                 child: _BlocoBranco(
                   compacto: compacto,
-                  // Só quando há para onde voltar. Hoje é sempre a tela
-                  // inicial, mas um botão que não leva a lugar nenhum seria
-                  // pior que botão nenhum.
+                  vendedor: widget.vendedor.name,
+                  // Volta para a lista de nomes. Só quando há para onde: um
+                  // botão que não leva a lugar nenhum é pior que botão nenhum.
                   onVoltar: Navigator.of(context).canPop()
                       ? () => Navigator.of(context).pop()
                       : null,
                   controller: _passwordController,
                   focusNode: _focus,
                   obscured: _obscured,
-                  readOnly: !_systemKeyboard,
                   enabled: !_submitting,
                   erro: _failure?.message,
                   onToggleObscured: () =>
                       setState(() => _obscured = !_obscured),
-                  onToggleKeyboard: () {
-                    setState(() => _systemKeyboard = !_systemKeyboard);
-                    if (_systemKeyboard) {
-                      _focus.requestFocus();
-                    } else {
-                      _focus.unfocus();
-                    }
-                  },
                   onSubmitted: (_) => _open(),
                 ),
               ),
@@ -223,31 +216,31 @@ class _TerminalLoginPageState extends State<TerminalLoginPage> {
 class _BlocoBranco extends StatelessWidget {
   const _BlocoBranco({
     required this.compacto,
+    required this.vendedor,
     required this.onVoltar,
     required this.controller,
     required this.focusNode,
     required this.obscured,
-    required this.readOnly,
     required this.enabled,
     required this.erro,
     required this.onToggleObscured,
-    required this.onToggleKeyboard,
     required this.onSubmitted,
   });
 
   final bool compacto;
 
-  /// Volta para a tela inicial; `null` quando não há pilha abaixo.
+  /// Nome de quem está se identificando.
+  final String vendedor;
+
+  /// Volta para a lista de nomes; `null` quando não há pilha abaixo.
   final VoidCallback? onVoltar;
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool obscured;
-  final bool readOnly;
   final bool enabled;
   final String? erro;
   final VoidCallback onToggleObscured;
-  final VoidCallback onToggleKeyboard;
   final ValueChanged<String> onSubmitted;
 
   @override
@@ -300,18 +293,16 @@ class _BlocoBranco extends StatelessWidget {
                   children: [
                     LogotipoDaLoja(compacto: compacto),
                     SizedBox(height: compacto ? 8 : 16),
-                    _Chamada(compacto: compacto),
+                    _Chamada(compacto: compacto, vendedor: vendedor),
                     SizedBox(height: compacto ? 8 : 12),
                     _CampoDeSenha(
                       compacto: compacto,
                       controller: controller,
                       focusNode: focusNode,
                       obscured: obscured,
-                      readOnly: readOnly,
                       enabled: enabled,
                       temErro: erro != null,
                       onToggleObscured: onToggleObscured,
-                      onToggleKeyboard: onToggleKeyboard,
                       onSubmitted: onSubmitted,
                     ),
                     SizedBox(height: compacto ? 8 : 12),
@@ -374,9 +365,13 @@ class _Onda extends CustomPainter {
 
 /// Cadeado, título e subtítulo.
 class _Chamada extends StatelessWidget {
-  const _Chamada({required this.compacto});
+  const _Chamada({required this.compacto, required this.vendedor});
 
   final bool compacto;
+
+  /// O nome de quem foi escolhido. Sem ele a tela pediria "sua senha" sem
+  /// dizer de quem.
+  final String vendedor;
 
   @override
   Widget build(BuildContext context) {
@@ -385,7 +380,7 @@ class _Chamada extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'INSIRA A SENHA DO TERMINAL',
+          'INSIRA A SENHA DO VENDEDOR',
           style: TextStyle(
             fontSize: compacto ? 17 : 38,
             fontWeight: FontWeight.w800,
@@ -395,7 +390,19 @@ class _Chamada extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          'Digite sua senha para acessar o sistema',
+          vendedor.toUpperCase(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: compacto ? 15 : 26,
+            fontWeight: FontWeight.w800,
+            height: 1.15,
+            color: Marca.azul,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'Digite sua senha',
           style: TextStyle(
             fontSize: compacto ? 12 : 19,
             fontWeight: FontWeight.w500,
@@ -433,11 +440,9 @@ class _CampoDeSenha extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.obscured,
-    required this.readOnly,
     required this.enabled,
     required this.temErro,
     required this.onToggleObscured,
-    required this.onToggleKeyboard,
     required this.onSubmitted,
   });
 
@@ -445,11 +450,9 @@ class _CampoDeSenha extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool obscured;
-  final bool readOnly;
   final bool enabled;
   final bool temErro;
   final VoidCallback onToggleObscured;
-  final VoidCallback onToggleKeyboard;
   final ValueChanged<String> onSubmitted;
 
   @override
@@ -488,8 +491,7 @@ class _CampoDeSenha extends StatelessWidget {
                     focusNode: focusNode,
                     obscureText: obscured,
                     obscuringCharacter: '✱',
-                    readOnly: readOnly,
-                    enabled: enabled,
+                      enabled: enabled,
                     showCursor: true,
                     cursorColor: Marca.tinta,
                     cursorWidth: 3,
@@ -499,7 +501,12 @@ class _CampoDeSenha extends StatelessWidget {
                       letterSpacing: compacto ? 10 : 18,
                       color: Marca.tinta,
                     ),
-                    keyboardType: TextInputType.visiblePassword,
+                    // Só leitura: quem escreve é o teclado da tela. Sem isto
+                    // um toque no campo abriria o teclado do Android, que no
+                    // M10 cobre metade da área útil — e some justamente com o
+                    // campo que está sendo preenchido.
+                    readOnly: true,
+                    keyboardType: TextInputType.number,
                     onSubmitted: onSubmitted,
                     decoration: const InputDecoration(
                       border: InputBorder.none,
@@ -508,7 +515,7 @@ class _CampoDeSenha extends StatelessWidget {
                       disabledBorder: InputBorder.none,
                       isDense: true,
                       contentPadding: EdgeInsets.zero,
-                      hintText: 'Senha do terminal',
+                      hintText: 'Seu PIN',
                       hintStyle: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
@@ -517,17 +524,6 @@ class _CampoDeSenha extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-              ),
-              IconButton(
-                tooltip: readOnly
-                    ? 'Usar o teclado do aparelho'
-                    : 'Usar o teclado da tela',
-                onPressed: enabled ? onToggleKeyboard : null,
-                icon: Icon(
-                  readOnly ? Icons.keyboard_outlined : Icons.dialpad,
-                  color: Marca.tintaFraca,
-                  size: compacto ? 22 : 28,
                 ),
               ),
               IconButton(
@@ -623,19 +619,6 @@ class _Teclado extends StatelessWidget {
   final VoidCallback onClear;
   final VoidCallback onConfirm;
 
-  /// As letras de cada tecla, como num teclado de telefone.
-  static const _letras = [
-    '',
-    'ABC',
-    'DEF',
-    'GHI',
-    'JKL',
-    'MNO',
-    'PQRS',
-    'TUV',
-    'WXYZ'
-  ];
-
   @override
   Widget build(BuildContext context) {
     final espaco = compacto ? 8.0 : 14.0;
@@ -680,7 +663,6 @@ class _Teclado extends StatelessWidget {
                           Expanded(
                             child: _Tecla(
                               rotulo: '${linha * 3 + coluna + 1}',
-                              letras: _letras[linha * 3 + coluna],
                               compacto: compacto,
                               onPressed: submetendo
                                   ? null
@@ -711,7 +693,6 @@ class _Teclado extends StatelessWidget {
                           child: coluna == 1
                               ? _Tecla(
                                   rotulo: '0',
-                                  letras: '',
                                   compacto: compacto,
                                   onPressed:
                                       submetendo ? null : () => onDigit('0'),
@@ -782,13 +763,11 @@ class _Teclado extends StatelessWidget {
 class _Tecla extends StatelessWidget {
   const _Tecla({
     required this.rotulo,
-    required this.letras,
     required this.compacto,
     required this.onPressed,
   });
 
   final String rotulo;
-  final String letras;
   final bool compacto;
   final VoidCallback? onPressed;
 
@@ -799,30 +778,16 @@ class _Tecla extends StatelessWidget {
       onPressed: onPressed,
       child: FittedBox(
         fit: BoxFit.scaleDown,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              rotulo,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: compacto ? 24 : 32,
-                fontWeight: FontWeight.w700,
-                height: 1,
-              ),
-            ),
-            if (letras.isNotEmpty)
-              Text(
-                letras,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: .75),
-                  fontSize: compacto ? 10 : 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
-                  height: 1.4,
-                ),
-              ),
-          ],
+        // Só o dígito: é um PIN, e as letras de telefone que ficavam aqui
+        // sugeriam uma senha alfanumérica que este teclado não digita.
+        child: Text(
+          rotulo,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: compacto ? 26 : 34,
+            fontWeight: FontWeight.w700,
+            height: 1,
+          ),
         ),
       ),
     );

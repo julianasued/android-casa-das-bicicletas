@@ -222,8 +222,10 @@ class _SetupPageState extends State<SetupPage> {
       builder: (context) => _ConfiguradoDialog(terminal: _terminal),
     );
     if (!mounted) return;
+    // Volta ao repouso: daqui quem chega escolhe o nome e digita o PIN. Não
+    // há mais uma senha de aparelho entre a configuração e a venda.
     await navigator.pushNamedAndRemoveUntil(
-      AppRoutes.terminalLogin,
+      AppRoutes.welcome,
       (_) => false,
     );
   }

@@ -125,8 +125,11 @@ class _WelcomePageState extends State<WelcomePage> {
                               SizedBox(height: compacto ? 22 : 44),
                               _BotaoIniciarVenda(
                                 compacto: compacto,
+                                // Escolher o nome vem antes da senha: ela
+                                // agora é de gente, e a tela seguinte precisa
+                                // saber de quem.
                                 onPressed: () => Navigator.of(context)
-                                    .pushNamed(AppRoutes.terminalLogin),
+                                    .pushNamed(AppRoutes.sellerSelection),
                               ),
                             ],
                           ),

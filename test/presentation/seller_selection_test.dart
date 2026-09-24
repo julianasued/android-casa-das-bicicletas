@@ -1,8 +1,9 @@
-/// Seleção do vendedor no terminal (§5 do fluxo, API §2.3).
+/// Escolha do vendedor no terminal (§5 do fluxo, API §2.3).
 ///
-/// A escolha aqui é quem responde pela venda e, por consequência, quem recebe
-/// a comissão (RF06, RF17–RF20). O que se garante: o nome é um alvo grande,
-/// não se pede senha nenhuma, e um toque não vira duas seleções.
+/// A escolha aqui é quem **se diz** responsável; provar quem é vem na tela
+/// seguinte, com o PIN da própria pessoa. A separação importa porque é dessa
+/// escolha que sai a comissão (RF06, RF17–RF20): antes tocar no nome já abria
+/// a sessão, e o nome na venda era só o nome que alguém tocou.
 library;
 
 import 'package:casa_das_bicicletas/app/dependencies.dart';
@@ -82,10 +83,10 @@ void main() {
     expect(find.byIcon(Icons.person), findsNWidgets(3));
   });
 
-  testWidgets('não pede senha do vendedor', (tester) async {
+  testWidgets('esta tela não pede senha', (tester) async {
     await montar(tester, sellers: doisVendedores);
 
-    // A seleção não é autenticação: quem tem senha é o terminal.
+    // O PIN existe, mas é da tela seguinte, onde já se sabe de quem ele é.
     expect(find.byType(TextField), findsNothing);
     expect(find.textContaining('senha', findRichText: true), findsNothing);
   });
@@ -103,27 +104,65 @@ void main() {
     expect(cartao.height, greaterThanOrEqualTo(80));
   });
 
-  testWidgets('tocar no nome seleciona o vendedor no servidor',
-      (tester) async {
+  testWidgets('tocar no nome abre o PIN daquela pessoa', (tester) async {
     final http = await montar(tester, sellers: doisVendedores);
 
     await tester.tap(find.text('MARIA COSTA'));
     await tester.pumpAndSettle();
 
-    final enviada = http.requests.firstWhere(
-      (r) => r.url.path.contains('select-seller'),
+    // A tela de PIN abriu, nomeando quem vai digitar.
+    expect(find.text('INSIRA A SENHA DO VENDEDOR'), findsOneWidget);
+    expect(find.text('MARIA COSTA'), findsWidgets);
+
+    // Nada foi aberto ainda: escolher o nome não é autenticar, e uma sessão
+    // aberta aqui carimbaria na venda quem só encostou o dedo na lista.
+    expect(
+      http.requests.any((r) => r.url.path.contains('select-seller')),
+      isFalse,
     );
-    expect(enviada.body, const {'seller_id': 15});
   });
 
-  testWidgets('selecionar entra direto na venda (§5 e §19)', (tester) async {
+  testWidgets('a tela de PIN abre sem erro de rota', (tester) async {
+    // A rota é empurrada direta, e não por nome: rota nomeada com argumento
+    // tipado devolve `null` do gerador quando o `is` erra, e o Flutter derruba
+    // a tela. Este teste monta a seleção **sem** gerador de rotas — se a tela
+    // dependesse de um nome, aqui ela estouraria.
+    final deps = buildTestDependencies(
+      transport: RecordingTransport(
+        (_) => jsonResponse(const {'results': <Object?>[]}),
+      ),
+    );
+
+    await tester.pumpWidget(
+      DependenciesScope(
+        dependencies: deps,
+        child: const MaterialApp(
+          home: SellerSelectionPage(sellers: doisVendedores),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('MARIA COSTA'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('INSIRA A SENHA DO VENDEDOR'), findsOneWidget);
+  });
+
+  testWidgets('voltar do PIN devolve à lista', (tester) async {
     await montar(tester, sellers: doisVendedores);
 
     await tester.tap(find.text('JOÃO SILVA'));
     await tester.pumpAndSettle();
+    expect(find.text('INSIRA A SENHA DO VENDEDOR'), findsOneWidget);
 
-    // Não passa mais pelo menu: quem escolheu o nome escolheu para vender.
-    expect(find.text('rota: /venda'), findsOneWidget);
+    await tester.tap(find.text('VOLTAR'));
+    await tester.pumpAndSettle();
+
+    // Volta para os nomes, e não para uma senha de aparelho que não existe.
+    expect(find.text('SELECIONE O VENDEDOR'), findsOneWidget);
+    expect(find.text('MARIA COSTA'), findsOneWidget);
   });
 
   testWidgets('carrega a lista quando ela não veio da abertura do terminal',

@@ -17,8 +17,15 @@ abstract interface class AuthRepository {
   /// §2.2 — vendedores habilitados neste terminal.
   Future<Result<List<Seller>>> listTerminalSellers();
 
-  /// §2.3 — seleciona o vendedor e abre a sessão de venda.
-  Future<Result<SellerSession>> selectSeller(int sellerId);
+  /// §2.3 — o vendedor se identifica com o PIN dele e abre a sessão.
+  ///
+  /// O `Seller` inteiro, e não só o id: é este nome que fica na sessão e que a
+  /// venda carimba (RF06), e o repositório não tem de onde tirá-lo quando a
+  /// listagem não passou por esta instância.
+  Future<Result<SellerSession>> selectSeller({
+    required Seller seller,
+    required String password,
+  });
 
   /// §2.6 — encerra a sessão e limpa os tokens do aparelho.
   Future<Result<void>> logout();

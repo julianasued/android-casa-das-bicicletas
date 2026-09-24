@@ -40,8 +40,16 @@ void main() {
     expect(find.text('Senha do terminal'), findsNothing);
   });
 
-  testWidgets('tela inicial leva à senha do aparelho', (tester) async {
-    final deps = buildTestDependencies();
+  testWidgets('tela inicial leva à escolha do vendedor', (tester) async {
+    final deps = buildTestDependencies(
+      transport: RecordingTransport(
+        (_) => jsonResponse(const {
+          'results': [
+            {'id': 12, 'name': 'João Silva'},
+          ],
+        }),
+      ),
+    );
     await deps.session.saveConfiguration(deviceId: 'M10-0001', storeId: 1);
 
     await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
@@ -50,11 +58,14 @@ void main() {
     await tester.tap(find.text('INICIAR VENDA'));
     await tester.pumpAndSettle();
 
-    expect(find.text('INSIRA A SENHA DO TERMINAL'), findsOneWidget);
-    expect(find.text('Senha do terminal'), findsOneWidget);
+    // Escolher o nome vem antes da senha: ela é de gente, e a tela seguinte
+    // precisa saber de quem. Não há mais etapa de senha do aparelho.
+    expect(find.text('SELECIONE O VENDEDOR'), findsOneWidget);
+    expect(find.text('INSIRA A SENHA DO VENDEDOR'), findsNothing);
   });
 
-  testWidgets('terminal aberto sem vendedor vai para a seleção', (tester) async {
+  testWidgets('sem vendedor autenticado o terminal fica em repouso',
+      (tester) async {
     final deps = buildTestDependencies(
       transport: RecordingTransport(
         (_) => jsonResponse(const {
@@ -77,6 +88,13 @@ void main() {
     );
 
     await tester.pumpWidget(CasaDasBicicletasApp(dependencies: deps));
+    await tester.pumpAndSettle();
+
+    // O `terminal_token` não decide mais rota: quem decide é haver vendedor
+    // autenticado. Sem ele, a tela é a inicial.
+    expect(find.text('INICIAR VENDA'), findsOneWidget);
+
+    await tester.tap(find.text('INICIAR VENDA'));
     await tester.pumpAndSettle();
 
     expect(find.text('SELECIONE O VENDEDOR'), findsOneWidget);
