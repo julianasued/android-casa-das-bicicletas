@@ -30,6 +30,7 @@ import '../../domain/entities/sale.dart';
 import '../../domain/usecases/create_sale.dart';
 import '../receipt/receipt_page.dart';
 import '../shared/brand.dart';
+import 'payment_confirmed_page.dart';
 import '../shared/confirmacao_do_vendedor.dart';
 import '../shared/feedback.dart';
 
@@ -84,6 +85,7 @@ class SaleFinishedPage extends StatefulWidget {
 
 class _SaleFinishedPageState extends State<SaleFinishedPage> {
   bool _reprinting = false;
+  bool _conferindo = false;
   late bool _printed = widget.finished.printed;
 
   /// Qual via está na mão do cliente.
@@ -94,6 +96,51 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
   late int _via = widget.finished.result.document?.sequence ?? 1;
 
   Sale get _sale => widget.finished.result.sale;
+
+  /// Pergunta ao servidor se o caixa já recebeu esta venda (RF10–RF12).
+  ///
+  /// É leitura pura: o terminal do vendedor não recebe pagamento, quem recebe
+  /// é o caixa. Tocar duas vezes não duplica recebimento nem cria uma segunda
+  /// venda — e é justamente por isso que o vendedor pode conferir à vontade,
+  /// com o cliente esperando no balcão.
+  Future<void> _conferirPagamento() async {
+    if (_conferindo) return;
+
+    final deps = context.deps;
+    final navigator = Navigator.of(context);
+    setState(() => _conferindo = true);
+
+    final resultado = await deps.checkPayment(_sale.id);
+
+    if (!mounted) return;
+    setState(() => _conferindo = false);
+
+    switch (resultado) {
+      case Ok(:final Sale value) when value.status.isConfirmed:
+        // Rota direta, e não nomeada: a tela exige a venda, e o construtor
+        // garante isso melhor do que um `is` em tempo de execução.
+        await navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => PaymentConfirmedPage(
+              sale: value,
+              onNovaVenda: _novaVenda,
+              onInicio: _inicio,
+            ),
+          ),
+        );
+      case Ok(:final Sale value) when value.status.awaitsCashier:
+        showMessage(
+          context,
+          'Ainda não foi recebida no caixa. Peça ao cliente para passar lá.',
+        );
+      case Ok(:final Sale value):
+        // Cancelada, em alteração, devolvida: o que se diz é o que o servidor
+        // registrou, nunca uma frase de sucesso.
+        showMessage(context, 'Situação da venda: ${value.status.label}.');
+      case Err(:final failure):
+        showFailure(context, failure);
+    }
+  }
 
   Future<void> _reprint() async {
     setState(() => _reprinting = true);
@@ -236,6 +283,8 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
                               onReimprimir: _reprint,
                               onInicio: _inicio,
                               onNovaVenda: _novaVenda,
+                              onConferirPagamento: _conferirPagamento,
+                              conferindo: _conferindo,
                             )
                           : _CorpoLargo(
                               finished: widget.finished,
@@ -245,6 +294,8 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
                               onReimprimir: _reprint,
                               onInicio: _inicio,
                               onNovaVenda: _novaVenda,
+                              onConferirPagamento: _conferirPagamento,
+                              conferindo: _conferindo,
                             );
                     },
                   ),
@@ -476,6 +527,8 @@ class _CorpoLargo extends StatelessWidget {
     required this.onReimprimir,
     required this.onInicio,
     required this.onNovaVenda,
+    required this.onConferirPagamento,
+    required this.conferindo,
   });
 
   final SaleFinished finished;
@@ -485,6 +538,8 @@ class _CorpoLargo extends StatelessWidget {
   final VoidCallback onReimprimir;
   final VoidCallback onInicio;
   final VoidCallback onNovaVenda;
+  final VoidCallback onConferirPagamento;
+  final bool conferindo;
 
   @override
   Widget build(BuildContext context) {
@@ -533,6 +588,11 @@ class _CorpoLargo extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
+                _BotaoDeConferirPagamento(
+                  ocupado: conferindo,
+                  onPressed: onConferirPagamento,
+                ),
+                const SizedBox(height: 10),
                 _BotaoDeReimpressao(
                   via: via,
                   impresso: impresso,
@@ -593,6 +653,8 @@ class _CorpoEstreito extends StatelessWidget {
     required this.onReimprimir,
     required this.onInicio,
     required this.onNovaVenda,
+    required this.onConferirPagamento,
+    required this.conferindo,
   });
 
   final SaleFinished finished;
@@ -602,6 +664,8 @@ class _CorpoEstreito extends StatelessWidget {
   final VoidCallback onReimprimir;
   final VoidCallback onInicio;
   final VoidCallback onNovaVenda;
+  final VoidCallback onConferirPagamento;
+  final bool conferindo;
 
   @override
   Widget build(BuildContext context) {
@@ -627,6 +691,11 @@ class _CorpoEstreito extends StatelessWidget {
                   impresso: impresso,
                   motivo: finished.printFailure?.message,
                   notinha: sale.paymentMethod.requiresCustomer,
+                ),
+                const SizedBox(height: 10),
+                _BotaoDeConferirPagamento(
+                  ocupado: conferindo,
+                  onPressed: onConferirPagamento,
                 ),
                 const SizedBox(height: 10),
                 _BotaoDeReimpressao(
@@ -1059,6 +1128,55 @@ class _TextoDoDocumento extends StatelessWidget {
 /// Secundário quando o papel saiu; em destaque quando não saiu — ali é a ação
 /// que resolve o balcão. O número da via vem do documento registrado, e não de
 /// um contador da tela.
+/// Pergunta ao servidor se o caixa já recebeu a venda.
+///
+/// Fica acima da reimpressão porque é a pergunta que o cliente faz de volta no
+/// balcão — "deu certo?" —, e é a que precisa de menos toques para responder.
+class _BotaoDeConferirPagamento extends StatelessWidget {
+  const _BotaoDeConferirPagamento({
+    required this.ocupado,
+    required this.onPressed,
+  });
+
+  final bool ocupado;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 72,
+      child: OutlinedButton.icon(
+        onPressed: ocupado ? null : onPressed,
+        icon: ocupado
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              )
+            : const Icon(Icons.price_check, size: 26, color: _Cor.texto),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 72),
+          backgroundColor: _Cor.cartao,
+          side: const BorderSide(color: _Cor.borda, width: 2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        label: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'CONFERIR PAGAMENTO',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: .4,
+              color: _Cor.texto,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _BotaoDeReimpressao extends StatelessWidget {
   const _BotaoDeReimpressao({
     required this.via,

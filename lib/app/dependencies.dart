@@ -33,6 +33,7 @@ import '../domain/repositories/auth_repository.dart';
 import '../domain/repositories/catalog_repository.dart';
 import '../domain/repositories/customer_repository.dart';
 import '../domain/repositories/sale_repository.dart';
+import '../domain/usecases/check_payment.dart';
 import '../domain/usecases/create_sale.dart';
 import '../domain/usecases/find_sale_by_barcode.dart';
 import '../domain/usecases/open_terminal.dart';
@@ -110,7 +111,8 @@ class AppDependencies {
                   ),
         ),
         reprintDocument = ReprintDocument(sales: sales, printer: printer),
-        findSaleByBarcode = FindSaleByBarcode(sales);
+        findSaleByBarcode = FindSaleByBarcode(sales),
+        checkPayment = CheckPayment(sales);
 
   /// A fila de operações pendentes (RF35). Ausente nos testes que não precisam
   /// de banco, e aí a venda offline simplesmente não acontece.
@@ -200,6 +202,9 @@ class AppDependencies {
   final CreateSale createSale;
   final ReprintDocument reprintDocument;
   final FindSaleByBarcode findSaleByBarcode;
+
+  /// Confere se o caixa já recebeu a venda — leitura, nunca recebimento.
+  final CheckPayment checkPayment;
 
   void dispose() {
     transport.close();
