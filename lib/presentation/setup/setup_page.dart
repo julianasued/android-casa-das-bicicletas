@@ -10,12 +10,16 @@
 ///
 /// - **O identificador fica à vista**, nunca mascarado: é o valor que o suporte
 ///   pede ao telefone quando o terminal não abre.
-/// - **O teclado é o do aplicativo**, não o do Android. No M10 o teclado do
-///   sistema cobre metade da tela e some com o campo que está sendo digitado —
-///   o mesmo motivo que fez a tela de senha desenhar o dela.
+/// - **Os campos são nativos**, com o teclado do Android. A tela já teve um
+///   teclado próprio, desenhado para não cobrir o campo em edição; o do sistema
+///   traz o que ele não tinha — acento, colar um endereço copiado, correção por
+///   toque no meio do texto — e é o teclado que o operador já conhece. O que
+///   resolvia o teclado próprio resolve-se no `Scaffold`, que recolhe a tela
+///   acima do teclado e rola o campo em foco até ele aparecer.
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/dependencies.dart';
 import '../../app/routes.dart';
@@ -35,7 +39,6 @@ class _Cor {
   static const Color sombraForte = Color(0xFFC9CEE0);
   static const Color tinta = Color(0xFF0E1B52);
   static const Color rotulo = Color(0xFF5B6480);
-  static const Color texto = Color(0xFF3A4260);
   static const Color avisoTexto = Color(0xFFC9D0EE);
 
   static const Color erroBorda = Color(0xFFE39A9A);
@@ -53,11 +56,6 @@ class _Cor {
   static const Color desligado = Color(0xFFD5DAE9);
   static const Color desligadoTexto = Color(0xFF7B8299);
   static const Color desligadoSombra = Color(0xFFC0C7DA);
-
-  static const Color tecladoFundo = Color(0xFFE6E9F4);
-  static const Color teclaSombra = Color(0xFFC3C9DE);
-  static const Color teclaEspecialSombra = Color(0xFFC9A209);
-  static const Color azulSombra = Color(0xFF001259);
 }
 
 /// Qual campo está sendo digitado.
@@ -70,8 +68,35 @@ enum _Campo {
 
   final String rotulo;
 
-  /// A loja é só número; os outros dois usam o teclado alfanumérico.
+  /// A loja é só número; os outros dois são texto.
   bool get numerico => this == _Campo.loja;
+
+  /// Qual teclado o Android abre para este campo.
+  TextInputType get tecladoDoSistema => switch (this) {
+        _Campo.api => TextInputType.url,
+        // `number` e não `phone`: o id da loja é um inteiro, e o teclado de
+        // telefone ofereceria `+`, `*` e `#`, que não entram aqui.
+        _Campo.loja => TextInputType.number,
+        _Campo.terminal => TextInputType.text,
+      };
+
+  /// O que o campo aceita.
+  ///
+  /// A regra é a de antes, no mecanismo do campo nativo: a loja é um id de até
+  /// quatro dígitos — nenhum terminal tem id de cinco casas.
+  List<TextInputFormatter> get formatos => switch (this) {
+        _Campo.loja => [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(4),
+          ],
+        // Endereço e identificador não levam espaço: o que aparece ali é
+        // colado de uma mensagem, e espaço no fim passa despercebido.
+        _ => [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
+      };
+
+  /// O último campo fecha o teclado; os outros levam ao seguinte.
+  TextInputAction get acaoDoTeclado =>
+      this == _Campo.terminal ? TextInputAction.done : TextInputAction.next;
 }
 
 class SetupPage extends StatefulWidget {
@@ -82,12 +107,12 @@ class SetupPage extends StatefulWidget {
 }
 
 class _SetupPageState extends State<SetupPage> {
-  /// Valores em edição. Ficam aqui, e não em `TextEditingController`, porque
-  /// quem digita é o teclado da tela — não há campo nativo para controlar.
-  final Map<_Campo, String> _valores = {
-    _Campo.api: '',
-    _Campo.loja: '',
-    _Campo.terminal: '',
+  /// Um campo nativo por informação, com o controlador e o foco de cada um.
+  final Map<_Campo, TextEditingController> _controles = {
+    for (final campo in _Campo.values) campo: TextEditingController(),
+  };
+  final Map<_Campo, FocusNode> _focos = {
+    for (final campo in _Campo.values) campo: FocusNode(),
   };
 
   DeviceInfo _aparelho = const DeviceInfo.unknown();
@@ -96,9 +121,9 @@ class _SetupPageState extends State<SetupPage> {
   bool _salvando = false;
   String? _erroDoServidor;
 
-  String get _api => _valores[_Campo.api]!.trim();
-  String get _loja => _valores[_Campo.loja]!.trim();
-  String get _terminal => _valores[_Campo.terminal]!.trim();
+  String get _api => _controles[_Campo.api]!.text.trim();
+  String get _loja => _controles[_Campo.loja]!.text.trim();
+  String get _terminal => _controles[_Campo.terminal]!.text.trim();
 
   /// Sugestão do aparelho para o `X-Device-Id`.
   String get _sugestao => _aparelho.androidId;
@@ -115,7 +140,41 @@ class _SetupPageState extends State<SetupPage> {
   @override
   void initState() {
     super.initState();
+    for (final campo in _Campo.values) {
+      // O que se digita muda o que o botão de salvar e a faixa de aviso dizem,
+      // e isso é recalculado a cada tecla — não só quando o campo é deixado.
+      _controles[campo]!.addListener(_aoDigitar);
+      _focos[campo]!.addListener(() => _aoMudarOFoco(campo));
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _carregar());
+  }
+
+  @override
+  void dispose() {
+    for (final campo in _Campo.values) {
+      _controles[campo]!.dispose();
+      _focos[campo]!.dispose();
+    }
+    super.dispose();
+  }
+
+  void _aoDigitar() {
+    if (!mounted) return;
+    // A recusa do servidor é da configuração que foi enviada; mexer no campo
+    // já a torna velha, e mantê-la na tela faz parecer que o novo valor também
+    // falhou.
+    setState(() => _erroDoServidor = null);
+  }
+
+  /// Qual campo está em edição — é o que acende a borda azul do cartão.
+  void _aoMudarOFoco(_Campo campo) {
+    if (!mounted) return;
+    final focado = _focos[campo]!.hasFocus;
+    if (focado) {
+      setState(() => _emFoco = campo);
+    } else if (_emFoco == campo) {
+      setState(() => _emFoco = null);
+    }
   }
 
   Future<void> _carregar() async {
@@ -124,53 +183,21 @@ class _SetupPageState extends State<SetupPage> {
     if (!mounted) return;
 
     final sessao = deps.session;
+    _controles[_Campo.api]!.text =
+        sessao.baseUrlOverride ?? deps.environment.apiBaseUrl;
+    _controles[_Campo.loja]!.text = sessao.storeId?.toString() ?? '';
+    _controles[_Campo.terminal]!.text = sessao.deviceId ?? aparelho.androidId;
+
     setState(() {
       _aparelho = aparelho;
-      _valores[_Campo.api] = sessao.baseUrlOverride ?? deps.environment.apiBaseUrl;
-      _valores[_Campo.loja] = sessao.storeId?.toString() ?? '';
-      _valores[_Campo.terminal] = sessao.deviceId ?? aparelho.androidId;
       _carregando = false;
-    });
-  }
-
-  void _digitar(String tecla) {
-    final campo = _emFoco;
-    if (campo == null) return;
-
-    var valor = _valores[campo]!;
-    valor = switch (tecla) {
-      _Teclado.apagar => valor.isEmpty ? valor : valor.substring(0, valor.length - 1),
-      _Teclado.espaco => '$valor ',
-      _ => '$valor$tecla',
-    };
-
-    // A loja é um id: só dígitos, e nenhum terminal tem id de cinco casas.
-    if (campo.numerico) {
-      valor = valor.replaceAll(RegExp(r'\D'), '');
-      if (valor.length > 4) valor = valor.substring(0, 4);
-    }
-
-    setState(() {
-      _valores[campo] = valor.trimLeft();
-      _erroDoServidor = null;
-    });
-  }
-
-  void _limparCampo() {
-    final campo = _emFoco;
-    if (campo == null) return;
-    setState(() {
-      _valores[campo] = '';
-      _erroDoServidor = null;
     });
   }
 
   void _usarSugestao() {
     if (_sugestao.isEmpty) return;
-    setState(() {
-      _valores[_Campo.terminal] = _sugestao;
-      _erroDoServidor = null;
-    });
+    // `text =` já avisa o controlador, e o ouvinte redesenha a tela.
+    _controles[_Campo.terminal]!.text = _sugestao;
   }
 
   Future<void> _salvar() async {
@@ -179,8 +206,11 @@ class _SetupPageState extends State<SetupPage> {
     final deps = context.deps;
     final navigator = Navigator.of(context);
 
+    // Fecha o teclado antes da espera: a tela de "testando a conexão" com
+    // meia tela de teclado por cima não deixa ler o que está acontecendo.
+    FocusScope.of(context).unfocus();
+
     setState(() {
-      _emFoco = null;
       _salvando = true;
       _erroDoServidor = null;
     });
@@ -251,29 +281,20 @@ class _SetupPageState extends State<SetupPage> {
                     ? const Center(child: CircularProgressIndicator())
                     : _Corpo(
                         aparelho: _aparelho,
-                        valores: _valores,
+                        controles: _controles,
+                        focos: _focos,
                         emFoco: _emFoco,
                         apiComErro: _apiComErro,
                         valido: _valido,
                         sugestao: _sugestao,
                         aviso: _aviso(),
                         avisoOk: _valido && _erroDoServidor == null,
-                        onFocar: (campo) => setState(() => _emFoco = campo),
                         onUsarSugestao: _usarSugestao,
                         onSalvar: _valido ? _salvar : null,
                       ),
               ),
             ],
           ),
-          if (_emFoco case final _Campo campo)
-            _Teclado(
-              campo: campo,
-              valor: _valores[campo]!,
-              onTecla: _digitar,
-              onLimpar: _limparCampo,
-              onPronto: () => setState(() => _emFoco = null),
-              onFechar: () => setState(() => _emFoco = null),
-            ),
           if (_salvando)
             _EsperaDaConexao(
               host: _hostDaApi(),
@@ -400,27 +421,27 @@ class _Cabecalho extends StatelessWidget {
 class _Corpo extends StatelessWidget {
   const _Corpo({
     required this.aparelho,
-    required this.valores,
+    required this.controles,
+    required this.focos,
     required this.emFoco,
     required this.apiComErro,
     required this.valido,
     required this.sugestao,
     required this.aviso,
     required this.avisoOk,
-    required this.onFocar,
     required this.onUsarSugestao,
     required this.onSalvar,
   });
 
   final DeviceInfo aparelho;
-  final Map<_Campo, String> valores;
+  final Map<_Campo, TextEditingController> controles;
+  final Map<_Campo, FocusNode> focos;
   final _Campo? emFoco;
   final bool apiComErro;
   final bool valido;
   final String sugestao;
   final String aviso;
   final bool avisoOk;
-  final ValueChanged<_Campo> onFocar;
   final VoidCallback onUsarSugestao;
   final VoidCallback? onSalvar;
 
@@ -447,34 +468,36 @@ class _Corpo extends StatelessWidget {
               SizedBox(height: compacto ? 10 : 14),
               _CampoDeTexto(
                 campo: _Campo.api,
-                valor: valores[_Campo.api]!,
+                controlador: controles[_Campo.api]!,
+                foco: focos[_Campo.api]!,
                 emFoco: emFoco == _Campo.api,
                 comErro: apiComErro,
                 etiqueta: apiComErro ? 'USE HTTPS' : 'OBRIGATÓRIO',
                 dica: 'HTTPS obrigatório (RNF01).',
-                onTap: () => onFocar(_Campo.api),
+                proximo: focos[_Campo.loja]!,
               ),
               const SizedBox(height: 12),
               _CampoDeTexto(
                 campo: _Campo.loja,
-                valor: valores[_Campo.loja]!,
+                controlador: controles[_Campo.loja]!,
+                foco: focos[_Campo.loja]!,
                 emFoco: emFoco == _Campo.loja,
                 comErro: false,
                 etiqueta: 'OBRIGATÓRIO',
                 dica: 'Id da loja cadastrada no sistema.',
-                onTap: () => onFocar(_Campo.loja),
+                proximo: focos[_Campo.terminal]!,
               ),
               const SizedBox(height: 12),
               _CampoDeTexto(
                 campo: _Campo.terminal,
-                valor: valores[_Campo.terminal]!,
+                controlador: controles[_Campo.terminal]!,
+                foco: focos[_Campo.terminal]!,
                 emFoco: emFoco == _Campo.terminal,
                 comErro: false,
                 etiqueta: 'OBRIGATÓRIO',
                 dica: sugestao.isEmpty
                     ? 'Deve ser igual ao cadastrado no terminal.'
                     : 'Sugestão do aparelho: $sugestao',
-                onTap: () => onFocar(_Campo.terminal),
               ),
               SizedBox(height: compacto ? 10 : 14),
               _Acoes(
@@ -602,24 +625,33 @@ class _CartaoDoAparelho extends StatelessWidget {
 ///
 /// Não é `TextField`: quem digita é o teclado da tela, e um campo nativo
 /// chamaria o teclado do Android por cima dele.
+/// Um dos três campos, no cartão da referência.
+///
+/// O cartão é a área de toque inteira: no M10 se toca com o dedo, e acertar
+/// só a linha do valor é pedir mira que ninguém tem no balcão.
 class _CampoDeTexto extends StatelessWidget {
   const _CampoDeTexto({
     required this.campo,
-    required this.valor,
+    required this.controlador,
+    required this.foco,
     required this.emFoco,
     required this.comErro,
     required this.etiqueta,
     required this.dica,
-    required this.onTap,
+    this.proximo,
   });
 
   final _Campo campo;
-  final String valor;
+  final TextEditingController controlador;
+  final FocusNode foco;
   final bool emFoco;
   final bool comErro;
   final String etiqueta;
   final String dica;
-  final VoidCallback onTap;
+
+  /// Para onde o botão de avançar do teclado leva. Nulo no último campo, que
+  /// fecha o teclado em vez de ir a lugar nenhum.
+  final FocusNode? proximo;
 
   @override
   Widget build(BuildContext context) {
@@ -629,116 +661,106 @@ class _CampoDeTexto extends StatelessWidget {
             ? Marca.azul
             : _Cor.borda;
 
-    return Semantics(
-      textField: true,
-      label: campo.rotulo,
-      value: valor,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 88),
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
-          decoration: BoxDecoration(
-            color: _Cor.cartao,
-            border: Border.all(color: corDaBorda, width: 3),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: emFoco ? _Cor.sombraForte : _Cor.sombra,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      campo.rotulo,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.4,
-                        color: _Cor.tinta,
-                      ),
+    return GestureDetector(
+      // Tocar em qualquer parte do cartão abre o teclado no campo certo.
+      onTap: foco.requestFocus,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 88),
+        padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
+        decoration: BoxDecoration(
+          color: _Cor.cartao,
+          border: Border.all(color: corDaBorda, width: 3),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: emFoco ? _Cor.sombraForte : _Cor.sombra,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    campo.rotulo,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.4,
+                      color: _Cor.tinta,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  _Etiqueta(texto: etiqueta, comErro: comErro),
-                ],
+                ),
+                const SizedBox(width: 12),
+                _Etiqueta(texto: etiqueta, comErro: comErro),
+              ],
+            ),
+            const SizedBox(height: 4),
+            TextField(
+              // O teste encosta o dedo em cada campo por este nome.
+              key: Key('campo-${campo.name}'),
+              controller: controlador,
+              focusNode: foco,
+              keyboardType: campo.tecladoDoSistema,
+              inputFormatters: campo.formatos,
+              textInputAction: campo.acaoDoTeclado,
+              onSubmitted: (_) {
+                if (proximo case final FocusNode seguinte) {
+                  seguinte.requestFocus();
+                } else {
+                  foco.unfocus();
+                }
+              },
+              // Endereço e identificador são valores exatos, conferidos letra
+              // por letra com o cadastro: correção automática e maiúscula no
+              // começo da frase só têm como estragá-los.
+              autocorrect: false,
+              enableSuggestions: false,
+              textCapitalization: TextCapitalization.none,
+              // Nada aqui é segredo — o identificador é justamente o valor que
+              // o suporte pede ao telefone.
+              obscureText: false,
+              cursorColor: Marca.azul,
+              cursorWidth: 3,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: _Cor.tinta,
               ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Expanded(child: _ValorDoCampo(valor: valor)),
-                  if (emFoco) ...[
-                    const SizedBox(width: 8),
-                    Container(width: 3, height: 30, color: Marca.azul),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(
-                dica,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: comErro ? _Cor.erroTexto : _Cor.rotulo,
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 4),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                hintText: '—',
+                hintStyle: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: _Cor.rotulo,
                 ),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              dica,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: comErro ? _Cor.erroTexto : _Cor.rotulo,
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
-}
-
-/// O valor digitado, ancorado no fim quando é comprido.
-///
-/// Uma URL longa cortada no começo esconde justamente o que muda entre um
-/// ambiente e outro — o fim do caminho. Ancorar no fim mostra o que interessa
-/// conferir.
-class _ValorDoCampo extends StatelessWidget {
-  const _ValorDoCampo({required this.valor});
-
-  final String valor;
-
-  static const int _limiteDaCauda = 44;
-
-  @override
-  Widget build(BuildContext context) {
-    const estilo = TextStyle(
-      fontSize: 24,
-      fontWeight: FontWeight.w800,
-      color: _Cor.tinta,
-    );
-
-    if (valor.isEmpty) {
-      return const Text(
-        '—',
-        maxLines: 1,
-        style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: _Cor.rotulo),
-      );
-    }
-
-    if (valor.length <= _limiteDaCauda) {
-      return Text(valor, maxLines: 1, overflow: TextOverflow.ellipsis, style: estilo);
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      reverse: true,
-      physics: const NeverScrollableScrollPhysics(),
-      child: Text(valor, maxLines: 1, softWrap: false, style: estilo),
     );
   }
 }
@@ -922,373 +944,6 @@ class _FaixaDeAviso extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Teclado do PDV
-// ---------------------------------------------------------------------------
-
-/// Teclado da tela, que sobe de baixo quando um campo é tocado.
-///
-/// O do Android não serve aqui: no M10 ele cobre metade da tela e some com o
-/// campo que está sendo preenchido. Este mostra o que está sendo digitado na
-/// própria barra, por cima das teclas.
-class _Teclado extends StatelessWidget {
-  const _Teclado({
-    required this.campo,
-    required this.valor,
-    required this.onTecla,
-    required this.onLimpar,
-    required this.onPronto,
-    required this.onFechar,
-  });
-
-  /// Marcadores das teclas que não são caractere.
-  static const String apagar = ' apagar';
-  static const String espaco = ' espaco';
-
-  static const List<List<String>> _alfabeto = [
-    ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
-    ['Z', 'X', 'C', 'V', 'B', 'N', 'M', 'Ç', apagar],
-    [espaco],
-  ];
-
-  static const List<List<String>> _numerico = [
-    ['1', '2', '3'],
-    ['4', '5', '6'],
-    ['7', '8', '9'],
-    [espaco, '0', apagar],
-  ];
-
-  final _Campo campo;
-  final String valor;
-  final ValueChanged<String> onTecla;
-  final VoidCallback onLimpar;
-  final VoidCallback onPronto;
-  final VoidCallback onFechar;
-
-  @override
-  Widget build(BuildContext context) {
-    final numerico = campo.numerico;
-    final compacto = MediaQuery.sizeOf(context).width < 900;
-
-    return Positioned.fill(
-      child: Column(
-        // `stretch` para o véu de cima ocupar a largura toda: sem isso ele
-        // nasce com a menor largura possível — zero —, e o toque fora do
-        // teclado não teria onde acontecer.
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Tocar fora fecha o teclado, como na referência.
-          Expanded(
-            child: GestureDetector(
-              onTap: onFechar,
-              behavior: HitTestBehavior.opaque,
-              child: ColoredBox(color: Colors.black.withValues(alpha: .35)),
-            ),
-          ),
-          Container(
-            padding: EdgeInsets.fromLTRB(
-              compacto ? 12 : 20,
-              14,
-              compacto ? 12 : 20,
-              18 + MediaQuery.paddingOf(context).bottom,
-            ),
-            decoration: const BoxDecoration(
-              color: _Cor.tecladoFundo,
-              border: Border(top: BorderSide(color: Marca.azul, width: 4)),
-              boxShadow: [
-                BoxShadow(
-                  color: Color(0x400A143C),
-                  offset: Offset(0, -12),
-                  blurRadius: 30,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _BarraDoTeclado(
-                  campo: campo,
-                  valor: valor,
-                  onLimpar: onLimpar,
-                  onPronto: onPronto,
-                  compacto: compacto,
-                ),
-                const SizedBox(height: 12),
-                LayoutBuilder(
-                  builder: (context, restricoes) => _Teclas(
-                    linhas: numerico ? _numerico : _alfabeto,
-                    numerico: numerico,
-                    largura: restricoes.maxWidth,
-                    onTecla: onTecla,
-                    onLimpar: onLimpar,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A barra do teclado: que campo está sendo digitado e o que já foi digitado.
-class _BarraDoTeclado extends StatelessWidget {
-  const _BarraDoTeclado({
-    required this.campo,
-    required this.valor,
-    required this.onLimpar,
-    required this.onPronto,
-    required this.compacto,
-  });
-
-  final _Campo campo;
-  final String valor;
-  final VoidCallback onLimpar;
-  final VoidCallback onPronto;
-  final bool compacto;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            height: 64,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: _Cor.cartao,
-              border: Border.all(color: Marca.azul, width: 3),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: const [
-                BoxShadow(color: _Cor.sombraForte, offset: Offset(0, 5)),
-              ],
-            ),
-            child: Row(
-              children: [
-                if (!compacto) ...[
-                  Text(
-                    campo.rotulo,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1,
-                      color: _Cor.rotulo,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                ],
-                Expanded(child: _ValorDoCampo(valor: valor)),
-                const SizedBox(width: 8),
-                Container(width: 3, height: 30, color: Marca.azul),
-              ],
-            ),
-          ),
-        ),
-        SizedBox(width: compacto ? 8 : 14),
-        SizedBox(
-          height: 64,
-          child: OutlinedButton(
-            onPressed: onLimpar,
-            style: OutlinedButton.styleFrom(
-              backgroundColor: _Cor.cartao,
-              foregroundColor: _Cor.texto,
-              padding: EdgeInsets.symmetric(horizontal: compacto ? 12 : 18),
-              side: const BorderSide(color: Color(0xFFC3C9DE), width: 2),
-              shape:
-                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text(
-              compacto ? 'LIMPAR' : 'LIMPAR CAMPO',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                letterSpacing: .8,
-              ),
-            ),
-          ),
-        ),
-        SizedBox(width: compacto ? 8 : 14),
-        SizedBox(
-          height: 64,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: const [
-                BoxShadow(color: _Cor.azulSombra, offset: Offset(0, 5)),
-              ],
-            ),
-            child: FilledButton.icon(
-              onPressed: onPronto,
-              icon: const Icon(Icons.check, color: Marca.amarelo, size: 22),
-              style: FilledButton.styleFrom(
-                backgroundColor: Marca.azul,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(horizontal: compacto ? 16 : 24),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              label: const Text(
-                'PRONTO',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// As fileiras de teclas.
-class _Teclas extends StatelessWidget {
-  const _Teclas({
-    required this.linhas,
-    required this.numerico,
-    required this.largura,
-    required this.onTecla,
-    required this.onLimpar,
-  });
-
-  final List<List<String>> linhas;
-  final bool numerico;
-  final double largura;
-  final ValueChanged<String> onTecla;
-  final VoidCallback onLimpar;
-
-  @override
-  Widget build(BuildContext context) {
-    const vao = 9.0;
-
-    // A largura da tecla sai da fileira mais cheia: assim todas as fileiras
-    // usam a mesma medida e as colunas ficam alinhadas, em qualquer tela.
-    final colunas = linhas.map((linha) => linha.length).reduce(
-          (maior, atual) => atual > maior ? atual : maior,
-        );
-    final larguraDaTecla =
-        ((largura - vao * (colunas - 1)) / colunas).clamp(40.0, numerico ? 172.0 : 96.0);
-    final alturaDaTecla = numerico ? 82.0 : 74.0;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final (i, linha) in linhas.indexed) ...[
-          if (i > 0) const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              for (final (j, tecla) in linha.indexed) ...[
-                if (j > 0) const SizedBox(width: vao),
-                _Tecla(
-                  tecla: tecla,
-                  numerico: numerico,
-                  largura: _larguraDe(tecla, larguraDaTecla, colunas, vao),
-                  altura: alturaDaTecla,
-                  onPressed: () {
-                    // No teclado numérico o lugar do ESPAÇO é o LIMPAR: espaço
-                    // não entra num id de loja.
-                    if (numerico && tecla == _Teclado.espaco) {
-                      onLimpar();
-                    } else {
-                      onTecla(tecla);
-                    }
-                  },
-                ),
-              ],
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  /// A barra de espaço vale por várias colunas, como na referência.
-  double _larguraDe(String tecla, double base, int colunas, double vao) {
-    if (numerico || tecla != _Teclado.espaco) return base;
-    const colunasDoEspaco = 6;
-    return base * colunasDoEspaco + vao * (colunasDoEspaco - 1);
-  }
-}
-
-class _Tecla extends StatelessWidget {
-  const _Tecla({
-    required this.tecla,
-    required this.numerico,
-    required this.largura,
-    required this.altura,
-    required this.onPressed,
-  });
-
-  final String tecla;
-  final bool numerico;
-  final double largura;
-  final double altura;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final apagar = tecla == _Teclado.apagar;
-    final espaco = tecla == _Teclado.espaco;
-    final especial = apagar || espaco;
-
-    final rotulo = apagar
-        ? '⌫'
-        : espaco
-            ? (numerico ? 'LIMPAR' : 'ESPAÇO')
-            : tecla;
-
-    return SizedBox(
-      width: largura,
-      height: altura,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: especial ? _Cor.teclaEspecialSombra : _Cor.teclaSombra,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: FilledButton(
-          onPressed: onPressed,
-          style: FilledButton.styleFrom(
-            backgroundColor: especial ? Marca.amarelo : _Cor.cartao,
-            foregroundColor: _Cor.tinta,
-            padding: EdgeInsets.zero,
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                rotulo,
-                style: TextStyle(
-                  fontSize: especial && !apagar
-                      ? 20
-                      : numerico
-                          ? 34
-                          : 30,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Esperas
