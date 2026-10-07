@@ -1,0 +1,24 @@
+name: elgin_m10
+description: "Ponte Flutter para os periféricos internos do Elgin Mini PDV M10 Pro (SDK E1)."
+version: 0.1.0
+publish_to: "none"
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: br.com.casadasbicicletas.elgin_m10
+        pluginClass: ElginM10Plugin

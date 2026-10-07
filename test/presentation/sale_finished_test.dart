@@ -1,0 +1,239 @@
+/// Desfecho da venda: o que a tela promete ao vendedor (§14, §15, §16, §17).
+///
+/// O caso que dá sentido à tela: a venda é registrada e o papel **não** sai —
+/// acabou a bobina. A venda vale, o cliente está no balcão, e o que resolve é
+/// reimprimir, não refazer. E o caso irmão: a venda ficou na fila porque não há
+/// rede, e dizer "pronto" ali seria mentira.
+library;
+
+import 'package:casa_das_bicicletas/app/dependencies.dart';
+import 'package:casa_das_bicicletas/core/failure.dart';
+import 'package:casa_das_bicicletas/data/remote/mappers.dart';
+import 'package:casa_das_bicicletas/domain/entities/printed_document.dart';
+import 'package:casa_das_bicicletas/domain/usecases/create_sale.dart';
+import 'package:casa_das_bicicletas/presentation/sale/sale_finished_page.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../support/fakes.dart';
+
+void main() {
+  SaleWithDocument desfecho({String paymentMethod = 'PIX'}) {
+    final json = saleJson();
+    json['payment_method'] = paymentMethod;
+    json['document_1'] = documentJson();
+    return saleWithDocumentFromJson(json);
+  }
+
+  /// Em tela estreita o miolo rola; as duas saídas ficam fixas no pé.
+  Future<void> rolarAte(WidgetTester tester, Finder alvo) async {
+    await tester.ensureVisible(alvo);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> montar(
+    WidgetTester tester,
+    SaleFinished finished, {
+    RecordingTransport? transport,
+  }) async {
+    await tester.pumpWidget(
+      DependenciesScope(
+        dependencies: buildTestDependencies(transport: transport),
+        child: MaterialApp(
+          home: SaleFinishedPage(finished: finished),
+          onGenerateRoute: (settings) => MaterialPageRoute<void>(
+            builder: (_) => Scaffold(body: Text('rota: ${settings.name}')),
+            settings: settings,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  group('venda finalizada (§14)', () {
+    testWidgets('anuncia o desfecho e os dados da venda', (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      expect(find.text('VENDA FINALIZADA'), findsOneWidget);
+      expect(find.textContaining('Venda #'), findsOneWidget);
+      expect(find.text('SALE-L1-7F3A9C2B'), findsOneWidget);
+      expect(find.text('VENDEDOR'), findsOneWidget);
+      expect(find.text('PAGAMENTO'), findsOneWidget);
+      // A situação é a que o servidor registrou. A tela não declara a venda
+      // paga em lugar nenhum: quem recebe é o caixa, e o estado só muda lá.
+      expect(find.text('Aguardando caixa'), findsOneWidget);
+      expect(find.text('Paga'), findsNothing);
+      expect(find.textContaining('venda paga'), findsNothing);
+    });
+
+    testWidgets('INÍCIO leva ao repouso do terminal', (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      await rolarAte(tester, find.text('INÍCIO'));
+      await tester.tap(find.text('INÍCIO'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('rota: /inicial'), findsOneWidget);
+    });
+
+    testWidgets('NOVA VENDA abre outra montagem, do zero', (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      await rolarAte(tester, find.text('NOVA VENDA'));
+      await tester.tap(find.text('NOVA VENDA'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('rota: /venda'), findsOneWidget);
+    });
+
+    testWidgets('sem cliente, a tela diz isso em vez de omitir', (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      expect(find.text('Venda sem cliente'), findsOneWidget);
+      expect(find.text('—'), findsOneWidget);
+    });
+  });
+
+  group('impressão (§15)', () {
+    testWidgets('impressão bem-sucedida orienta a entregar o documento',
+        (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      expect(find.textContaining('impresso'), findsWidgets);
+    });
+
+    testWidgets('falha de impressão não apaga a venda e oferece reimprimir',
+        (tester) async {
+      await montar(
+        tester,
+        SaleFinished(
+          result: desfecho(),
+          printFailure: const OutOfPaperFailure(),
+        ),
+      );
+
+      // A venda continua na tela: ela vale, o que faltou foi o papel.
+      expect(find.text('VENDA FINALIZADA'), findsOneWidget);
+      expect(find.textContaining('não foi impresso'), findsOneWidget);
+      await rolarAte(tester, find.text('REIMPRIMIR DOCUMENTO'));
+      expect(find.text('REIMPRIMIR DOCUMENTO'), findsOneWidget);
+    });
+
+    testWidgets('reimprimir usa a reimpressão, e não gera outra venda',
+        (tester) async {
+      final transport = RecordingTransport((request) {
+        if (request.url.path.contains('document-1/print')) {
+          return jsonResponse(documentJson(sequence: 2));
+        }
+        return jsonResponse(const <String, Object?>{});
+      });
+
+      await montar(
+        tester,
+        SaleFinished(
+          result: desfecho(),
+          printFailure: const OutOfPaperFailure(),
+        ),
+        transport: transport,
+      );
+
+      await rolarAte(tester, find.text('REIMPRIMIR DOCUMENTO'));
+      await tester.tap(find.text('REIMPRIMIR DOCUMENTO'));
+      await tester.pumpAndSettle();
+
+      // Nenhum POST /sales/: reimpressão não duplica venda nem documento.
+      expect(
+        transport.requests.any(
+          (r) => r.method == 'POST' && r.url.path.endsWith('/sales/'),
+        ),
+        isFalse,
+      );
+      expect(
+        transport.requests.any((r) => r.url.path.contains('document-1/print')),
+        isTrue,
+      );
+    });
+  });
+
+  group('documento (§16)', () {
+    testWidgets('venda à vista lembra que o documento vai ao caixa',
+        (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      expect(
+        find.textContaining('Entregue ao cliente para levar ao caixa'),
+        findsOneWidget,
+      );
+      // Documento 1 não é comprovante de pagamento (RF08).
+      expect(
+        find.textContaining('não é comprovante de pagamento'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('notinha tem lembrete próprio', (tester) async {
+      await montar(
+        tester,
+        SaleFinished(result: desfecho(paymentMethod: 'NOTINHA')),
+      );
+
+      expect(
+        find.textContaining('entregar a notinha para o cliente'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('offline (§17)', () {
+    testWidgets('venda na fila não se passa por sincronizada', (tester) async {
+      await montar(
+        tester,
+        SaleFinished(
+          result: desfecho(),
+          pendingOperationId: '7f3a9c2b-1111-4222-8333-444455556666',
+        ),
+      );
+
+      expect(
+        find.text('Registrada no terminal, ainda não enviada'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('sobe sozinha'), findsOneWidget);
+    });
+
+    testWidgets('venda enviada não mostra aviso de fila', (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      expect(
+        find.text('Registrada no terminal, ainda não enviada'),
+        findsNothing,
+      );
+    });
+  });
+
+  group('comprovante (visual de papel térmico)', () {
+    testWidgets('VER COMPROVANTE abre a tela no visual da nota impressa',
+        (tester) async {
+      await montar(tester, SaleFinished(result: desfecho()));
+
+      await rolarAte(tester, find.text('VER COMPROVANTE'));
+      await tester.tap(find.text('VER COMPROVANTE'));
+      await tester.pumpAndSettle();
+
+      // A mesma referência que saiu (ou vai sair) no papel — não um número
+      // recalculado por esta tela.
+      expect(find.text('SALE-L1-7F3A9C2B'), findsOneWidget);
+      expect(find.textContaining('Vendedor:'), findsOneWidget);
+    });
+
+    testWidgets('sem documento, o botão não aparece', (tester) async {
+      final semDocumento = saleWithDocumentFromJson(
+        saleJson()..remove('document_1'),
+      );
+      await montar(tester, SaleFinished(result: semDocumento));
+
+      expect(find.text('VER COMPROVANTE'), findsNothing);
+    });
+  });
+}
