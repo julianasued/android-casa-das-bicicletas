@@ -141,6 +141,20 @@ void main() {
       expect(operacao.payload['uuid'], venda.uuid);
     });
 
+    test('a operação na fila declara quem vendeu (RF06, RF19)', () async {
+      // O envio pode acontecer no turno seguinte, com outra pessoa logada: sem
+      // o autor declarado, o servidor credita a venda a quem subiu o lote.
+      await semRede()(draft());
+
+      expect(fila.enfileiradas.single.payload['seller_id'], 12);
+    });
+
+    test('o corpo da rota não leva o vendedor', () async {
+      // Online quem vende é o dono da sessão; mandar o campo sugeriria que o
+      // cliente escolhe.
+      expect(_contexto().payload(draft()).containsKey('seller_id'), isFalse);
+    });
+
     test('a fila recebe antes de o papel sair', () async {
       // Um documento impresso de uma venda que não ficou registrada em lugar
       // nenhum é o pior desfecho possível.

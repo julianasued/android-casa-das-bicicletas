@@ -66,11 +66,21 @@ class OfflineSaleContext {
   }
 
   /// A operação como ela entra na fila.
+  ///
+  /// O payload ganha `seller_id`, que o corpo da rota REST não tem: online o
+  /// vendedor sai do `session_token` no instante da venda, e aqui o envio vem
+  /// depois — pode ser no turno seguinte, com outra pessoa logada neste mesmo
+  /// aparelho. Sem declarar o autor, o servidor creditaria a venda, e a
+  /// comissão (RF19), a quem só subiu o lote.
+  ///
+  /// Vai aqui, e não no `payloadFor`, porque é informação da **operação**: na
+  /// rota, mandá-lo seria sugerir que o cliente escolhe o vendedor, e ele não
+  /// escolhe — lá quem vende é o dono da sessão, e o servidor ignora o campo.
   PendingOperation operationFor(SaleDraft draft, DateTime occurredAt) =>
       PendingOperation(
         operationId: draft.uuid,
         type: OperationType.saleCreate,
-        payload: payload(draft),
+        payload: {...payload(draft), 'seller_id': seller.id},
         occurredAt: occurredAt,
         status: SyncStatus.pendente,
       );
