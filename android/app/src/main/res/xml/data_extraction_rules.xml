@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Nada deste aplicativo sai do aparelho — OFF-010.
+
+    Do Android 12 em diante é este arquivo que manda, e `allowBackup="false"`
+    no manifesto deixa de ser suficiente: ele desliga o backup em nuvem, mas a
+    transferência direta para um aparelho novo continua levando os dados a menos
+    que ela seja excluída aqui. Por isso os dois blocos.
+
+    Os domínios vão um a um de propósito. `root` não cobre `databases/` nem
+    `shared_prefs/`, e é justamente em `databases/` que vive
+    `casa_das_bicicletas.db` — o cache com CPF, telefone e endereço de clientes
+    e a fila de vendas pendentes.
+
+    Se algum dia algo daqui **precisar** sobreviver à troca de aparelho, a
+    resposta é o servidor, não o backup do Android: a fila existe para subir, e
+    o cache se refaz pelo `pull` (RF34).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

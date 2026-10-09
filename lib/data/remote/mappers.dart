@@ -189,8 +189,21 @@ SyncOutcome syncOutcomeFromJson(Map<String, Object?> json) => SyncOutcome(
       status: _syncStatusFromCode(readStringOrNull(json, 'status')),
       serverId: readIntOrNull(json, 'server_id'),
       conflictId: readStringOrNull(json, 'conflict_id'),
-      message: readStringOrNull(json, 'message') ?? readStringOrNull(json, 'detail'),
+      message: _motivoDaRecusa(json),
     );
+
+/// O que o servidor disse sobre a operação recusada (§3.9).
+///
+/// A frase vive em `error.message`, **dentro** do resultado de cada operação —
+/// não no topo dele. Lendo no topo, `message` era sempre nulo e a fila gravava
+/// a frase genérica "O servidor recusou a operação", enquanto a causa — produto
+/// inativo, permissão do perfil, data fora da janela — vinha escrita na
+/// resposta, pronta para ser mostrada a quem está no balcão.
+String? _motivoDaRecusa(Map<String, Object?> json) {
+  final erro = json['error'];
+  if (erro is! Map<String, Object?>) return null;
+  return readStringOrNull(erro, 'message');
+}
 
 SyncStatus _syncStatusFromCode(String? code) => switch (code) {
       'SINCRONIZADO' => SyncStatus.sincronizado,
