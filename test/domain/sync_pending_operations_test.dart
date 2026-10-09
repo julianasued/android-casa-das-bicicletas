@@ -8,6 +8,7 @@ library;
 import 'package:casa_das_bicicletas/core/failure.dart';
 import 'package:casa_das_bicicletas/core/result.dart';
 import 'package:casa_das_bicicletas/domain/entities/pending_operation.dart';
+import 'package:casa_das_bicicletas/domain/entities/reference_snapshot.dart';
 import 'package:casa_das_bicicletas/domain/entities/sync_outcome.dart';
 import 'package:casa_das_bicicletas/domain/repositories/sync_repository.dart';
 import 'package:casa_das_bicicletas/domain/usecases/sync_pending_operations.dart';
@@ -47,8 +48,7 @@ class _FilaFalsa implements SyncableQueue {
   }
 
   @override
-  Future<void> markFailed(String operationId, String error) async =>
-      falhas[operationId] = error;
+  Future<void> markFailed(String operationId, String error) async => falhas[operationId] = error;
 
   @override
   Future<void> markConflicting(
@@ -75,6 +75,11 @@ class _EnvioFalso implements SyncRepository {
     enviado = operations;
     return response;
   }
+
+  /// Este caso de uso não baixa nada; quem usa o `pull` é o
+  /// `PullReferenceData`, que tem teste próprio.
+  @override
+  Future<Result<ReferenceSnapshot>> pull({DateTime? since}) => throw UnimplementedError();
 }
 
 void main() {
@@ -226,8 +231,7 @@ void main() {
   });
 
   group('falha do lote inteiro', () {
-    test('não marca ninguém, para não inflar a contagem de tentativas',
-        () async {
+    test('não marca ninguém, para não inflar a contagem de tentativas', () async {
       // Rede caiu no meio do envio: o problema não é das operações.
       final fila = _FilaFalsa([_operacao('op-1'), _operacao('op-2')]);
       final usecase = SyncPendingOperations(

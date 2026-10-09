@@ -213,4 +213,84 @@ void main() {
       expect(await cache.hasProducts, isFalse);
     });
   });
+
+  group('escopo de loja (OFF-005)', () {
+    /// O cache é da loja do terminal, e o terminal pode ser reconfigurado.
+    ///
+    /// Sem escopo, o catálogo e os clientes da loja anterior continuavam
+    /// aparecendo na busca offline: a venda sairia com o preço de outro lugar,
+    /// e o CPF de um cliente que não é daquela loja ficava visível no balcão.
+    late LocalDatabase banco;
+    int? loja;
+
+    setUp(() {
+      banco = LocalDatabase(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+      loja = 1;
+    });
+
+    tearDown(() => banco.close());
+
+    ReferenceCache cacheDaLoja() => ReferenceCache(banco, lojaAtual: () => loja);
+
+    test('produto gravado numa loja não aparece na outra', () async {
+      await cacheDaLoja().saveProducts([_produto(id: 1, name: 'Pneu da Loja 1')]);
+
+      loja = 2;
+      expect(await cacheDaLoja().searchProducts(), isEmpty);
+
+      loja = 1;
+      expect(
+        (await cacheDaLoja().searchProducts()).single.name,
+        'Pneu da Loja 1',
+      );
+    });
+
+    test('o leitor de código também respeita a loja', () async {
+      await cacheDaLoja().saveProducts([_produto(id: 1, barcode: '789')]);
+
+      loja = 2;
+      expect(await cacheDaLoja().findProductByBarcode('789'), isNull);
+    });
+
+    test('cliente de outra loja não aparece na busca', () async {
+      await cacheDaLoja().saveCustomers([
+        const Customer(
+          id: 77,
+          name: 'Maria Souza',
+          document: '12345678901',
+          phone: '11999990000',
+        ),
+      ]);
+
+      loja = 2;
+      expect(await cacheDaLoja().searchCustomers(), isEmpty);
+
+      loja = 1;
+      expect((await cacheDaLoja().searchCustomers()).single.name, 'Maria Souza');
+    });
+
+    test('ter catálogo e idade do cache são por loja', () async {
+      await cacheDaLoja().saveProducts([_produto(id: 1)]);
+
+      loja = 2;
+      expect(await cacheDaLoja().hasProducts, isFalse);
+      expect(await cacheDaLoja().lastProductSync(), isNull);
+
+      loja = 1;
+      expect(await cacheDaLoja().hasProducts, isTrue);
+      expect(await cacheDaLoja().lastProductSync(), isNotNull);
+    });
+
+    test('sem loja configurada, grava e lê no mesmo escopo', () async {
+      // É o caso do terminal ainda não configurado: escopo nulo nas duas
+      // pontas, em vez de um cache que grava e nunca encontra.
+      final semLoja = ReferenceCache(banco);
+      await semLoja.saveProducts([_produto(id: 1, name: 'Sem loja')]);
+
+      expect((await semLoja.searchProducts()).single.name, 'Sem loja');
+
+      loja = 1;
+      expect(await cacheDaLoja().searchProducts(), isEmpty);
+    });
+  });
 }

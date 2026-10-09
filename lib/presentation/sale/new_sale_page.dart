@@ -30,6 +30,7 @@ import '../../platform/connectivity/connectivity_channel.dart';
 import '../shared/brand.dart';
 import '../shared/feedback.dart';
 import 'customer_picker_page.dart';
+import 'aviso_de_catalogo.dart';
 import 'new_sale_controller.dart';
 
 class NewSalePage extends StatefulWidget {
@@ -88,8 +89,7 @@ class _NewSalePageState extends State<NewSalePage> {
               // Duas colunas só quando há espaço nas duas direções: a
               // referência é de 1280x800, e espremê-la numa tela baixa põe o
               // teclado e a venda disputando altura que não existe.
-              final compacto =
-                  constraints.maxWidth < 900 || constraints.maxHeight < 640;
+              final compacto = constraints.maxWidth < 900 || constraints.maxHeight < 640;
 
               return Column(
                 children: [
@@ -99,6 +99,21 @@ class _NewSalePageState extends State<NewSalePage> {
                     compacto: compacto,
                     onMenu: _openMenu,
                     onSair: _exit,
+                  ),
+                  // De quando é o preço que está na tela (RF34). Sem rede, ele
+                  // vem do cache local, e um catálogo de semanas atrás fecha
+                  // venda por valor que já mudou. A faixa não aparece com rede.
+                  ListenableBuilder(
+                    listenable: deps.connectivity,
+                    builder: (context, _) => FutureBuilder<DateTime?>(
+                      // Refeito a cada troca de conexão: a busca online que
+                      // acabou de acontecer é o que renova a data.
+                      future: deps.referenceCache?.lastProductSync(),
+                      builder: (context, snapshot) => AvisoDeCatalogoEmCache(
+                        atualizadoEm: snapshot.data,
+                        online: deps.connectivity.isOnline,
+                      ),
+                    ),
                   ),
                   Expanded(
                     child: Stack(
@@ -217,23 +232,20 @@ class _NewSalePageState extends State<NewSalePage> {
               ListTile(
                 leading: const Icon(Icons.search),
                 title: const Text('Buscar produto no catálogo'),
-                subtitle:
-                    const Text('Capacidade futura; a V1 lança por categoria'),
+                subtitle: const Text('Capacidade futura; a V1 lança por categoria'),
                 onTap: () => Navigator.of(context).pop('catalogo'),
               ),
               ListTile(
                 leading: const Icon(Icons.qr_code_scanner),
                 title: const Text('Leitor de código'),
-                subtitle:
-                    const Text('Localiza a venda pelo código do documento'),
+                subtitle: const Text('Localiza a venda pelo código do documento'),
                 onTap: () => Navigator.of(context).pop(AppRoutes.scanner),
               ),
               ListTile(
                 leading: const Icon(Icons.print),
                 title: const Text('Impressora'),
                 subtitle: const Text('Estado, avanço de papel e teste'),
-                onTap: () =>
-                    Navigator.of(context).pop(AppRoutes.printerDiagnostics),
+                onTap: () => Navigator.of(context).pop(AppRoutes.printerDiagnostics),
               ),
               ListTile(
                 leading: const Icon(Icons.memory),
@@ -641,8 +653,7 @@ class _ManualEntryDialogState extends State<_ManualEntryDialog> {
             TextField(
               controller: _priceController,
               autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
                 labelText: 'Valor',
                 prefixText: 'R\$ ',
@@ -653,8 +664,7 @@ class _ManualEntryDialogState extends State<_ManualEntryDialog> {
             const SizedBox(height: 12),
             TextField(
               controller: _quantityController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
                 labelText: 'Quantidade (opcional)',
                 helperText: 'Em branco vale 1.',
@@ -812,10 +822,8 @@ class _CartPanel extends StatelessWidget {
                         _CartLine(
                           line: draft.lines[i],
                           lineTotal: totals.lineTotals[i],
-                          onIncrement: () =>
-                              controller.increment(draft.lines[i].id),
-                          onDecrement: () =>
-                              controller.decrement(draft.lines[i].id),
+                          onIncrement: () => controller.increment(draft.lines[i].id),
+                          onDecrement: () => controller.decrement(draft.lines[i].id),
                           onRemove: () => controller.remove(draft.lines[i].id),
                         ),
                     ],
@@ -863,8 +871,7 @@ class _CartPanel extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               if (totals.discount.isPositive) ...[
-                _TotalRow(
-                    label: 'Subtotal', value: totals.gross.toDisplayString()),
+                _TotalRow(label: 'Subtotal', value: totals.gross.toDisplayString()),
                 _TotalRow(
                   label: 'Desconto',
                   value: '- ${totals.discount.toDisplayString()}',
@@ -874,8 +881,7 @@ class _CartPanel extends StatelessWidget {
               // embaixo, e o valor grande à direita — é o número que o cliente
               // confere de longe.
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                 decoration: BoxDecoration(
                   color: _Venda.cartao,
                   border: Border.all(color: _Venda.borda),
@@ -1178,8 +1184,7 @@ class _PaymentSelector extends StatelessWidget {
       builder: (context, constraints) {
         final colunas = constraints.maxWidth >= 460 ? 5 : 3;
         final espaco = 9.0;
-        final largura =
-            (constraints.maxWidth - espaco * (colunas - 1)) / colunas;
+        final largura = (constraints.maxWidth - espaco * (colunas - 1)) / colunas;
 
         return Wrap(
           spacing: espaco,
@@ -1325,9 +1330,8 @@ class _DiscountDialogState extends State<_DiscountDialog> {
     _ModoDoDesconto.valor: 8,
   };
 
-  late _ModoDoDesconto _modo = widget.inicial.isAmount
-      ? _ModoDoDesconto.valor
-      : _ModoDoDesconto.percentual;
+  late _ModoDoDesconto _modo =
+      widget.inicial.isAmount ? _ModoDoDesconto.valor : _ModoDoDesconto.percentual;
 
   late String _digitado = _doInicial();
 
@@ -1337,8 +1341,7 @@ class _DiscountDialogState extends State<_DiscountDialog> {
     return bruto <= 0 ? '' : bruto.toString();
   }
 
-  int get _numeroDigitado =>
-      int.tryParse(_digitado.isEmpty ? '0' : _digitado) ?? 0;
+  int get _numeroDigitado => int.tryParse(_digitado.isEmpty ? '0' : _digitado) ?? 0;
 
   /// O que foi digitado lido como reais — só significa isso no modo valor.
   Money get _valorDigitado => Money.fromCents(_numeroDigitado);
@@ -1362,9 +1365,8 @@ class _DiscountDialogState extends State<_DiscountDialog> {
   bool get _acimaDoTeto => _descontoNegociado.exceedsCapOn(widget.subtotal);
 
   /// O desconto que a venda vai receber, exatamente como vai receber.
-  Money get _desconto => _acimaDoTeto
-      ? const Money.zero()
-      : _descontoNegociado.amountOn(widget.subtotal);
+  Money get _desconto =>
+      _acimaDoTeto ? const Money.zero() : _descontoNegociado.amountOn(widget.subtotal);
 
   void _trocarModo(_ModoDoDesconto modo) {
     if (modo == _modo) return;
@@ -1373,8 +1375,7 @@ class _DiscountDialogState extends State<_DiscountDialog> {
     // ambiguidade que o seletor existe para evitar. A conversão parte do
     // desconto em reais, então ir de % para R$ não move o valor.
     final convertido = switch (modo) {
-      _ModoDoDesconto.valor =>
-        _descontoNegociado.amountOn(widget.subtotal).cents,
+      _ModoDoDesconto.valor => _descontoNegociado.amountOn(widget.subtotal).cents,
       _ModoDoDesconto.percentual => _hundredths,
     };
     setState(() {
@@ -1382,7 +1383,6 @@ class _DiscountDialogState extends State<_DiscountDialog> {
       _digitado = convertido <= 0 ? '' : convertido.toString();
     });
   }
-
 
   /// Atalho é sempre percentual; no modo valor entra o equivalente em reais.
   void _aplicarAtalho(int hundredths) {
@@ -1545,8 +1545,7 @@ class _DiscountDialogState extends State<_DiscountDialog> {
                           hundredths: _hundredths,
                           desconto: _desconto,
                           acimaDoTeto: _acimaDoTeto,
-                          onSemDesconto: () => Navigator.of(context)
-                              .pop(const SaleDiscount.none()),
+                          onSemDesconto: () => Navigator.of(context).pop(const SaleDiscount.none()),
                         );
 
                         if (constraints.maxWidth < 520) {
@@ -1601,8 +1600,7 @@ class _DiscountDialogState extends State<_DiscountDialog> {
                       // depois: o vendedor vê o limite antes de tentar.
                       onPressed: _acimaDoTeto || _descontoNegociado.isZero
                           ? null
-                          : () =>
-                              Navigator.of(context).pop(_descontoNegociado),
+                          : () => Navigator.of(context).pop(_descontoNegociado),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(66),
                         backgroundColor: const Color(0xFFD97B06),
@@ -1661,8 +1659,7 @@ class _AtalhoDeDesconto extends StatelessWidget {
       child: FilledButton(
         onPressed: onPressed,
         style: FilledButton.styleFrom(
-          backgroundColor:
-              selecionado ? const Color(0xFFD97B06) : const Color(0xFFF7F9FD),
+          backgroundColor: selecionado ? const Color(0xFFD97B06) : const Color(0xFFF7F9FD),
           foregroundColor: selecionado ? Colors.white : _Venda.painelEscuro,
           side: BorderSide(
             color: selecionado ? const Color(0xFFD97B06) : _Venda.borda,
@@ -1703,8 +1700,7 @@ class _SeletorDeModo extends StatelessWidget {
           onPressed: () => onTrocar(alvo),
           style: FilledButton.styleFrom(
             padding: EdgeInsets.zero,
-            backgroundColor:
-                ativo ? const Color(0xFFD97B06) : const Color(0xFFF7F9FD),
+            backgroundColor: ativo ? const Color(0xFFD97B06) : const Color(0xFFF7F9FD),
             foregroundColor: ativo ? Colors.white : _Venda.painelEscuro,
             side: BorderSide(
               color: ativo ? const Color(0xFFD97B06) : _Venda.borda,
@@ -1775,9 +1771,7 @@ class _LeituraDoDesconto extends StatelessWidget {
               style: TextStyle(
                 fontSize: 19,
                 fontWeight: FontWeight.w800,
-                color: alerta
-                    ? Theme.of(context).colorScheme.error
-                    : _Venda.texto,
+                color: alerta ? Theme.of(context).colorScheme.error : _Venda.texto,
               ),
             ),
           ),
@@ -1832,9 +1826,7 @@ class _MostradorDoDesconto extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    emReais
-                        ? digitado.toDisplayString()
-                        : formatPercentDisplay(hundredths),
+                    emReais ? digitado.toDisplayString() : formatPercentDisplay(hundredths),
                     style: const TextStyle(
                       fontSize: 36,
                       fontWeight: FontWeight.w800,
@@ -1911,8 +1903,7 @@ class _TecladoDoDesconto extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget tecla(String rotulo) => Expanded(
-          child: _TeclaDoDesconto(
-              rotulo: rotulo, onPressed: () => onDigito(rotulo)),
+          child: _TeclaDoDesconto(rotulo: rotulo, onPressed: () => onDigito(rotulo)),
         );
 
     return Column(
@@ -2161,9 +2152,7 @@ class _ClienteEscolhido extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: vencida
-            ? theme.colorScheme.errorContainer
-            : const Color(0xFFF2F4FA),
+        color: vencida ? theme.colorScheme.errorContainer : const Color(0xFFF2F4FA),
         border: Border.all(
           color: vencida ? theme.colorScheme.error : const Color(0xFFDFE4F1),
         ),
@@ -2173,9 +2162,7 @@ class _ClienteEscolhido extends StatelessWidget {
         children: [
           Icon(
             vencida ? Icons.warning_amber : Icons.person,
-            color: vencida
-                ? theme.colorScheme.onErrorContainer
-                : const Color(0xFF0E1B52),
+            color: vencida ? theme.colorScheme.onErrorContainer : const Color(0xFF0E1B52),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2193,8 +2180,7 @@ class _ClienteEscolhido extends StatelessWidget {
                     color: Color(0xFF0E1B52),
                   ),
                 ),
-                if (customer.phone case final String telefone
-                    when telefone.isNotEmpty)
+                if (customer.phone case final String telefone when telefone.isNotEmpty)
                   Text(
                     telefone,
                     style: const TextStyle(
@@ -2217,9 +2203,7 @@ class _ClienteEscolhido extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: vencida
-                        ? theme.colorScheme.onErrorContainer
-                        : const Color(0xFF5B6480),
+                    color: vencida ? theme.colorScheme.onErrorContainer : const Color(0xFF5B6480),
                   ),
                 ),
               ],
@@ -2396,8 +2380,7 @@ class _CabecalhoDaVenda extends StatelessWidget {
                   Icon(
                     conectividade.isOnline ? Icons.cloud_done : Icons.cloud_off,
                     size: 16,
-                    color:
-                        conectividade.isOnline ? Colors.white : Marca.amarelo,
+                    color: conectividade.isOnline ? Colors.white : Marca.amarelo,
                   ),
                 ],
               ),
@@ -2450,8 +2433,7 @@ class _PainelDoValor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:
-          EdgeInsets.fromLTRB(compacto ? 14 : 20, 12, compacto ? 14 : 20, 14),
+      padding: EdgeInsets.fromLTRB(compacto ? 14 : 20, 12, compacto ? 14 : 20, 14),
       decoration: BoxDecoration(
         color: _Venda.painelEscuro,
         borderRadius: BorderRadius.circular(16),
@@ -2832,8 +2814,7 @@ class _CartaoDeCategoria extends StatelessWidget {
                         color: armado ? Colors.white : _Venda.desarmadoTexto,
                       ),
                     ),
-                    if (_Venda.exemploDaCategoria(categoria.code)
-                        .isNotEmpty) ...[
+                    if (_Venda.exemploDaCategoria(categoria.code).isNotEmpty) ...[
                       const SizedBox(height: 3),
                       Text(
                         _Venda.exemploDaCategoria(categoria.code),
@@ -2841,9 +2822,7 @@ class _CartaoDeCategoria extends StatelessWidget {
                         style: TextStyle(
                           fontSize: compacto ? 11 : 14,
                           fontWeight: FontWeight.w600,
-                          color: armado
-                              ? Colors.white.withValues(alpha: .88)
-                              : _Venda.rotulo,
+                          color: armado ? Colors.white.withValues(alpha: .88) : _Venda.rotulo,
                         ),
                       ),
                     ],
@@ -2922,8 +2901,7 @@ class _CorpoLargo extends StatelessWidget {
                 _PainelDoValor(controller: controller, compacto: false),
                 const SizedBox(height: 12),
                 Expanded(
-                  child:
-                      _TecladoDoValor(controller: controller, compacto: false),
+                  child: _TecladoDoValor(controller: controller, compacto: false),
                 ),
               ],
             ),
@@ -3159,8 +3137,7 @@ class _ListaDeItens extends StatelessWidget {
                       return _LinhaDoItem(
                         line: draft.lines[posicao],
                         total: totais.lineTotals[posicao],
-                        onRemove: () =>
-                            controller.remove(draft.lines[posicao].id),
+                        onRemove: () => controller.remove(draft.lines[posicao].id),
                       );
                     },
                   ),
@@ -3174,8 +3151,7 @@ class _ListaDeItens extends StatelessWidget {
   ///
   /// Devolve código, contagem e rótulo — o rótulo sai da própria linha, e não
   /// de uma tabela à parte que poderia divergir do que foi vendido.
-  List<(String, int, String)> _contagemPorCategoria(
-      List<SaleDraftLine> linhas) {
+  List<(String, int, String)> _contagemPorCategoria(List<SaleDraftLine> linhas) {
     final contagem = <String, int>{};
     final rotulos = <String, String>{};
     for (final linha in linhas) {
@@ -3499,9 +3475,7 @@ class _ConferenciaDaVenda extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        draft.lineCount == 1
-                            ? '1 item'
-                            : '${draft.lineCount} itens',
+                        draft.lineCount == 1 ? '1 item' : '${draft.lineCount} itens',
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,

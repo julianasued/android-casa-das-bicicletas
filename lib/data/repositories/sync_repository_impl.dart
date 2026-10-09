@@ -3,6 +3,7 @@ library;
 
 import '../../core/result.dart';
 import '../../domain/entities/pending_operation.dart';
+import '../../domain/entities/reference_snapshot.dart';
 import '../../domain/entities/sync_outcome.dart';
 import '../../domain/repositories/sync_repository.dart';
 import '../remote/api_client.dart';
@@ -36,6 +37,21 @@ class SyncRepositoryImpl implements SyncRepository {
       (result) => [
         for (final item in readResults(result.data)) syncOutcomeFromJson(item),
       ],
+    );
+  }
+
+  @override
+  Future<Result<ReferenceSnapshot>> pull({DateTime? since}) async {
+    final response = await _api.get(
+      ApiEndpoints.syncPull,
+      query: {
+        if (since != null) 'since': since.toUtc().toIso8601String(),
+      },
+    );
+
+    return mapApiResponse(
+      response,
+      (result) => referenceSnapshotFromJson(result.data),
     );
   }
 }
