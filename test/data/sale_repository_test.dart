@@ -50,7 +50,9 @@ void main() {
       expect(body['uuid'], draft.uuid);
       expect(body['payment_method'], 'PIX');
       expect(body['discount_percent'], '2.50');
-      expect(body['created_offline'], isFalse);
+      // `created_offline` não vai no corpo: a origem é do caminho, e o
+      // servidor a deriva (RF37).
+      expect(body.containsKey('created_offline'), isFalse);
 
       final items = body['items']! as List<Object?>;
       expect(items, hasLength(1));

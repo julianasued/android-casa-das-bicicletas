@@ -1068,7 +1068,7 @@ class _CartLine extends StatelessWidget {
 ///
 /// Prazo e observação aparecem na referência visual, mas não existem no
 /// contrato: `SaleCreateSerializer` aceita apenas uuid, customer_id,
-/// payment_method, discount_percent, created_offline e items, e o `due_date`
+/// payment_method, discount_percent e items, e o `due_date`
 /// do Receivable nasce nulo. Campo que não é enviado a lugar nenhum seria
 /// promessa falsa ao operador, então não estão aqui.
 class _NotinhaDetails extends StatelessWidget {
