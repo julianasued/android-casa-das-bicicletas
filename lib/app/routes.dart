@@ -25,6 +25,9 @@ class AppRoutes {
   static const String scanner = '/leitor';
   static const String printerDiagnostics = '/impressora';
 
+  /// A fila de sincronização: contadores, envio manual e o que travou (OFF-008).
+  static const String syncQueue = '/sincronizacao';
+
   /// Prova de integração com o hardware do M10, fora do fluxo de venda.
   static const String m10Poc = '/m10';
 }

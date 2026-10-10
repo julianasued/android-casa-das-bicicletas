@@ -21,6 +21,7 @@ import '../../domain/entities/receivable.dart';
 import '../../domain/entities/sync_outcome.dart';
 import '../../domain/entities/sale.dart';
 import '../../domain/entities/seller.dart';
+import '../../domain/entities/reference_snapshot.dart';
 import '../../domain/entities/store.dart';
 import '../../domain/entities/terminal_session.dart';
 
@@ -59,8 +60,7 @@ String? readStringOrNull(Map<String, Object?> json, String field) {
   return text.isEmpty ? null : text;
 }
 
-Money readMoney(Map<String, Object?> json, String field) =>
-    Money.parse(readString(json, field));
+Money readMoney(Map<String, Object?> json, String field) => Money.parse(readString(json, field));
 
 Money readMoneyOrZero(Map<String, Object?> json, String field) {
   final value = json[field];
@@ -92,6 +92,29 @@ List<Map<String, Object?>> readResults(Map<String, Object?> json) =>
 // ---------------------------------------------------------------------------
 // Entidades
 // ---------------------------------------------------------------------------
+
+/// O retrato de referência do `GET /sync/pull/` (API §3.9).
+///
+/// Lista ausente é lista vazia, não erro: com `?since=`, o normal é o servidor
+/// devolver só o que mudou — e no dia em que nada mudou, nada vem.
+ReferenceSnapshot referenceSnapshotFromJson(Map<String, Object?> json) {
+  List<Map<String, Object?>> lista(String chave) => [
+        for (final item in (json[chave] as List<Object?>? ?? const <Object?>[]))
+          item as Map<String, Object?>,
+      ];
+
+  final loja = json['store'];
+
+  return ReferenceSnapshot(
+    syncedAt: DateTime.parse(json['synced_at']! as String),
+    store: loja is Map<String, Object?> ? storeFromJson(loja) : null,
+    products: [for (final item in lista('products')) productFromJson(item)],
+    customers: [for (final item in lista('customers')) customerFromJson(item)],
+    categories: [
+      for (final item in lista('product_categories')) categoryFromJson(item),
+    ],
+  );
+}
 
 Store storeFromJson(Map<String, Object?> json) => Store(
       id: readInt(json, 'id'),
@@ -166,9 +189,21 @@ SyncOutcome syncOutcomeFromJson(Map<String, Object?> json) => SyncOutcome(
       status: _syncStatusFromCode(readStringOrNull(json, 'status')),
       serverId: readIntOrNull(json, 'server_id'),
       conflictId: readStringOrNull(json, 'conflict_id'),
-      message: readStringOrNull(json, 'message') ??
-          readStringOrNull(json, 'detail'),
+      message: _motivoDaRecusa(json),
     );
+
+/// O que o servidor disse sobre a operação recusada (§3.9).
+///
+/// A frase vive em `error.message`, **dentro** do resultado de cada operação —
+/// não no topo dele. Lendo no topo, `message` era sempre nulo e a fila gravava
+/// a frase genérica "O servidor recusou a operação", enquanto a causa — produto
+/// inativo, permissão do perfil, data fora da janela — vinha escrita na
+/// resposta, pronta para ser mostrada a quem está no balcão.
+String? _motivoDaRecusa(Map<String, Object?> json) {
+  final erro = json['error'];
+  if (erro is! Map<String, Object?>) return null;
+  return readStringOrNull(erro, 'message');
+}
 
 SyncStatus _syncStatusFromCode(String? code) => switch (code) {
       'SINCRONIZADO' => SyncStatus.sincronizado,
@@ -210,9 +245,8 @@ Sale saleFromJson(Map<String, Object?> json) => Sale(
       customerId: readIntOrNull(json, 'customer_id'),
       customerName: readStringOrNull(json, 'customer_name'),
       status: SaleStatus.fromCode(readStringOrNull(json, 'status')),
-      paymentMethod:
-          PaymentMethod.tryFromCode(readStringOrNull(json, 'payment_method')) ??
-              PaymentMethod.dinheiro,
+      paymentMethod: PaymentMethod.tryFromCode(readStringOrNull(json, 'payment_method')) ??
+          PaymentMethod.dinheiro,
       barcode: readStringOrNull(json, 'barcode') ?? '',
       grossAmount: readMoneyOrZero(json, 'gross_amount'),
       discountAmount: readMoneyOrZero(json, 'discount_amount'),
@@ -224,11 +258,9 @@ Sale saleFromJson(Map<String, Object?> json) => Sale(
       createdOffline: json['created_offline'] as bool? ?? false,
     );
 
-DocumentPayment documentPaymentFromJson(Map<String, Object?> json) =>
-    DocumentPayment(
+DocumentPayment documentPaymentFromJson(Map<String, Object?> json) => DocumentPayment(
       paymentMethodLabel:
-          PaymentMethod.tryFromCode(readStringOrNull(json, 'payment_method'))
-                  ?.label ??
+          PaymentMethod.tryFromCode(readStringOrNull(json, 'payment_method'))?.label ??
               readStringOrNull(json, 'payment_method') ??
               '',
       amount: readMoneyOrZero(json, 'amount'),
@@ -273,8 +305,7 @@ PrintedDocument printedDocumentFromJson(Map<String, Object?> json) {
     confirmedAt: readDateTimeOrNull(json, 'confirmed_at'),
     cashierName: readStringOrNull(json, 'cashier_name'),
     payments: [
-      for (final payment in readList(json['payments']))
-        documentPaymentFromJson(payment),
+      for (final payment in readList(json['payments'])) documentPaymentFromJson(payment),
     ],
   );
 }
@@ -284,9 +315,7 @@ SaleWithDocument saleWithDocumentFromJson(Map<String, Object?> json) {
   final rawDocument = json['document_1'];
   return SaleWithDocument(
     sale: saleFromJson(json),
-    document: rawDocument is Map<String, Object?>
-        ? printedDocumentFromJson(rawDocument)
-        : null,
+    document: rawDocument is Map<String, Object?> ? printedDocumentFromJson(rawDocument) : null,
   );
 }
 
@@ -300,8 +329,6 @@ BarcodeRead barcodeReadFromChannel(Map<Object?, Object?> event) {
     code: code,
     readAt: rawAt == null ? DateTime.now() : (DateTime.tryParse(rawAt) ?? DateTime.now()),
     symbology: event['symbology']?.toString(),
-    source: rawSource == 'keyboard'
-        ? BarcodeSource.keyboardWedge
-        : BarcodeSource.integratedScanner,
+    source: rawSource == 'keyboard' ? BarcodeSource.keyboardWedge : BarcodeSource.integratedScanner,
   );
 }

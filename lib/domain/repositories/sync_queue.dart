@@ -13,4 +13,11 @@ abstract interface class SyncQueue {
 
   /// O que ainda não chegou ao servidor, para a tela avisar o operador.
   Future<QueueSummary> summary();
+
+  /// O que não vai sair da fila sozinho: conflito e recusa.
+  ///
+  /// O resumo diz **quantas**; isto diz **quais**, com o motivo que o servidor
+  /// deu. Sem a lista, "2 operações travadas" é um número que não leva a lugar
+  /// nenhum — e a venda que ficou de fora existe no papel que o cliente levou.
+  Future<List<PendingOperation>> needingAttention();
 }

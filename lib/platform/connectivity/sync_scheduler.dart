@@ -8,6 +8,16 @@
 /// terminal no balcão oscila: avisar de novo a cada notificação faria o
 /// aplicativo tentar sincronizar quando a rede acabou de cair, que é o pior
 /// momento. O gatilho é a transição de "sem rede" para "com rede".
+///
+/// **Sobe e desce no mesmo gatilho.** Depois de enviar a fila, o agendador
+/// também busca os dados de referência (`pull`): é a mesma janela de rede, e é
+/// ela que corrige o cache — produto desativado no servidor só sai da vitrine
+/// do terminal quando chega por aqui, porque a busca online filtra ativos e
+/// nunca o traria de volta (RF34, OFF-005).
+///
+/// O envio vem primeiro de propósito: o que já aconteceu no balcão tem
+/// prioridade sobre o que o terminal vai saber. E o `pull` falhar não desfaz o
+/// `push` — são dois resultados independentes.
 library;
 
 import 'dart:async';
@@ -16,6 +26,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/result.dart';
 import '../../domain/entities/sync_outcome.dart';
+import '../../domain/usecases/pull_reference_data.dart';
 import '../../domain/usecases/sync_pending_operations.dart';
 import 'connectivity_channel.dart';
 
@@ -23,13 +34,18 @@ class SyncScheduler {
   SyncScheduler({
     required ConnectivityChannel connectivity,
     required SyncPendingOperations sync,
+    PullReferenceData? pull,
     Duration retryInterval = const Duration(minutes: 5),
   })  : _connectivity = connectivity,
         _sync = sync,
+        _pull = pull,
         _retryInterval = retryInterval;
 
   final ConnectivityChannel _connectivity;
   final SyncPendingOperations _sync;
+
+  /// Opcional: sem ele o agendador se comporta como antes, só enviando.
+  final PullReferenceData? _pull;
 
   /// Com rede e fila cheia, tenta de novo de tempo em tempo.
   ///
@@ -73,7 +89,27 @@ class SyncScheduler {
     if (resultado case Ok(:final value)) {
       if (!value.isEmpty) lastReport.value = value;
     }
+
+    await _atualizarReferencia();
   }
+
+  /// Busca o que mudou no catálogo e nos clientes.
+  ///
+  /// Sem barulho e sem travar nada: falhar aqui deixa o cache como estava, e o
+  /// terminal segue vendendo com o catálogo de antes — que é melhor do que não
+  /// vender. Quem avisa que ele está velho é a tela de venda.
+  Future<void> _atualizarReferencia() async {
+    final pull = _pull;
+    if (pull == null || !_connectivity.isOnline) return;
+
+    final resultado = await pull();
+    if (resultado case Ok(:final value)) {
+      if (!value.isEmpty) lastPull.value = value;
+    }
+  }
+
+  /// O último retrato recebido, para a tela poder mostrar.
+  final ValueNotifier<PullReport?> lastPull = ValueNotifier<PullReport?>(null);
 
   /// Sincroniza agora, a pedido do operador.
   ///
@@ -84,6 +120,7 @@ class SyncScheduler {
     if (resultado case Ok(:final value)) {
       if (!value.isEmpty) lastReport.value = value;
     }
+    await _atualizarReferencia();
     return resultado;
   }
 
@@ -92,6 +129,7 @@ class SyncScheduler {
     _timer = null;
     _connectivity.removeListener(_onConnectivityChanged);
     lastReport.dispose();
+    lastPull.dispose();
     _started = false;
   }
 }

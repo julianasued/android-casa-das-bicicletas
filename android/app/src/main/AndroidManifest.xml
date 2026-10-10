@@ -3,10 +3,35 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
+    <!--
+        O banco local (`casa_das_bicicletas.db`) guarda CPF, telefone e endereço
+        de clientes no cache de referência e o payload financeiro das vendas que
+        ainda não subiram. Sem declarar nada, o padrão da plataforma é
+        `allowBackup="true"`: esse arquivo sairia do aparelho em claro, no backup
+        da conta Google do dono do aparelho.
+
+        Os tokens não estão nesse bolo — ficam em `EncryptedSharedPreferences`
+        com chave no Keystore —, mas dado de cliente é dado de cliente.
+
+        As duas declarações cobrem épocas diferentes do Android, e as duas
+        precisam existir:
+          - `allowBackup="false"` desliga o backup até o Android 11 (o M10 Pro);
+          - `dataExtractionRules` é o que vale do Android 12 em diante, onde
+            `allowBackup="false"` já não impede a transferência direta para um
+            aparelho novo.
+
+        O `tools:replace` do `allowBackup` não é zelo: a AAR do PDV da Elgin
+        (`minipdvm8-v01.00.00-release.aar`) declara `allowBackup="true"` no
+        próprio manifesto, e sem a substituição explícita o merge falha. Ou
+        seja, o backup não estava ligado só pelo padrão da plataforma — havia
+        uma dependência pedindo por ele.
+    -->
     <application
         android:label="Casa das Bicicletas"
-        tools:replace="android:label,android:icon"
+        tools:replace="android:label,android:icon,android:allowBackup"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

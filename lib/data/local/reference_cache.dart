@@ -21,12 +21,24 @@ import '../../domain/entities/printed_document.dart';
 import '../../domain/entities/terminal_identity.dart';
 import '../../domain/entities/product.dart';
 import '../../domain/entities/store.dart';
+import '../../domain/repositories/reference_store.dart';
 import 'local_database.dart';
 
-class ReferenceCache {
-  const ReferenceCache(this._db);
+class ReferenceCache implements ReferenceStore {
+  /// [lojaAtual] diz de qual loja é o cache, e é consultada a cada operação —
+  /// o terminal pode ser reconfigurado sem o aplicativo reiniciar.
+  const ReferenceCache(this._db, {int? Function()? lojaAtual}) : _lojaAtual = lojaAtual;
 
   final LocalDatabase _db;
+  final int? Function()? _lojaAtual;
+
+  /// A loja que escopa tudo o que se grava e tudo o que se lê.
+  ///
+  /// Sem nenhuma configurada, vale `null` — e aí escrita e leitura ficam as duas
+  /// no mesmo escopo nulo, que é coerente: grava sem loja, lê sem loja. O
+  /// filtro usa `IS`, que no SQLite compara `NULL` como valor, então não há um
+  /// caminho em que uma busca enxergue o cache de outro escopo.
+  int? get _loja => _lojaAtual?.call();
 
   // ---------------------------------------------------------------------------
   // Escrita
@@ -36,9 +48,11 @@ class ReferenceCache {
   ///
   /// `ConflictAlgorithm.replace` porque o servidor é a fonte de verdade
   /// (§13.11): se o preço mudou, o que vale é o que acabou de chegar.
+  @override
   Future<void> saveProducts(Iterable<Product> products) async {
     if (products.isEmpty) return;
     final agora = DateTime.now().toUtc().toIso8601String();
+    final loja = _loja;
     final db = await _db.open();
 
     await db.transaction((txn) async {
@@ -55,6 +69,7 @@ class ReferenceCache {
             'price_cents': product.price.cents,
             'barcode': product.barcode,
             'is_active': product.isActive ? 1 : 0,
+            'store_id': loja,
             'cached_at': agora,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
@@ -64,9 +79,11 @@ class ReferenceCache {
     });
   }
 
+  @override
   Future<void> saveCustomers(Iterable<Customer> customers) async {
     if (customers.isEmpty) return;
     final agora = DateTime.now().toUtc().toIso8601String();
+    final loja = _loja;
     final db = await _db.open();
 
     await db.transaction((txn) async {
@@ -81,6 +98,7 @@ class ReferenceCache {
             'phone': customer.phone,
             'address': customer.address,
             'is_active': customer.isActive ? 1 : 0,
+            'store_id': loja,
             'cached_at': agora,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
@@ -90,6 +108,7 @@ class ReferenceCache {
     });
   }
 
+  @override
   Future<void> saveCategories(Iterable<ProductCategory> categories) async {
     if (categories.isEmpty) return;
     final agora = DateTime.now().toUtc().toIso8601String();
@@ -126,12 +145,14 @@ class ReferenceCache {
     final db = await _db.open();
     final termo = query.trim();
 
-    final where = <String>['is_active = 1'];
-    final args = <Object?>[];
+    final where = <String>['is_active = 1', 'store_id IS ?'];
+    final args = <Object?>[_loja];
 
     if (termo.isNotEmpty) {
-      where.add('(name LIKE ?1 OR sku LIKE ?1 OR barcode LIKE ?1)');
-      args.add('%$termo%');
+      // Sem `?1` posicional: já existe um argumento antes (a loja), e repetir
+      // o termo é mais claro do que contar posições à mão.
+      where.add('(name LIKE ? OR sku LIKE ? OR barcode LIKE ?)');
+      args.addAll(['%$termo%', '%$termo%', '%$termo%']);
     }
     if (categoryCode != null && categoryCode.isNotEmpty) {
       where.add('category_code = ?${args.length + 1}');
@@ -157,8 +178,8 @@ class ReferenceCache {
     final db = await _db.open();
     final linhas = await db.query(
       'cached_product',
-      where: 'barcode = ? AND is_active = 1',
-      whereArgs: [barcode.trim()],
+      where: 'barcode = ? AND is_active = 1 AND store_id IS ?',
+      whereArgs: [barcode.trim(), _loja],
       limit: 1,
     );
 
@@ -172,9 +193,10 @@ class ReferenceCache {
     final linhas = await db.query(
       'cached_customer',
       where: termo.isEmpty
-          ? 'is_active = 1'
-          : 'is_active = 1 AND (name LIKE ?1 OR document LIKE ?1 OR phone LIKE ?1)',
-      whereArgs: termo.isEmpty ? null : ['%$termo%'],
+          ? 'is_active = 1 AND store_id IS ?'
+          : 'is_active = 1 AND store_id IS ? '
+              'AND (name LIKE ? OR document LIKE ? OR phone LIKE ?)',
+      whereArgs: termo.isEmpty ? [_loja] : [_loja, '%$termo%', '%$termo%', '%$termo%'],
       orderBy: 'name',
       limit: 50,
     );
@@ -208,16 +230,53 @@ class ReferenceCache {
   Future<DateTime?> lastProductSync() async {
     final db = await _db.open();
     final linhas = await db.rawQuery(
-      'SELECT MAX(cached_at) AS ultimo FROM cached_product',
+      'SELECT MAX(cached_at) AS ultimo FROM cached_product WHERE store_id IS ?',
+      [_loja],
     );
 
     final valor = linhas.single['ultimo'] as String?;
     return valor == null ? null : DateTime.parse(valor);
   }
 
+  /// Até quando o cache desta loja já recebeu dados do servidor (RF34).
+  ///
+  /// É o que vai em `?since=` na próxima chamada do `pull`. `null` quando nunca
+  /// houve pull, ou quando o marcador guardado é de outra loja — aí a próxima
+  /// chamada traz tudo, que é o certo: o catálogo é outro.
+  @override
+  Future<DateTime?> lastReferenceSync() async {
+    final db = await _db.open();
+    final linhas = await db.query(
+      'reference_sync',
+      where: 'id = 1 AND store_id IS ?',
+      whereArgs: [_loja],
+      limit: 1,
+    );
+    if (linhas.isEmpty) return null;
+    return DateTime.parse(linhas.single['synced_at']! as String);
+  }
+
+  /// Guarda o `synced_at` que o servidor devolveu.
+  @override
+  Future<void> saveReferenceSync(DateTime syncedAt) async {
+    final db = await _db.open();
+    await db.insert(
+      'reference_sync',
+      {
+        'id': 1,
+        'store_id': _loja,
+        'synced_at': syncedAt.toUtc().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   Future<bool> get hasProducts async {
     final db = await _db.open();
-    final linhas = await db.rawQuery('SELECT 1 FROM cached_product LIMIT 1');
+    final linhas = await db.rawQuery(
+      'SELECT 1 FROM cached_product WHERE store_id IS ? LIMIT 1',
+      [_loja],
+    );
     return linhas.isNotEmpty;
   }
 
@@ -247,6 +306,7 @@ class ReferenceCache {
   ///
   /// Cobre o terminal que ainda não imprimiu nada online — só não traz o nome
   /// do terminal, que a rota de loja não conhece.
+  @override
   Future<void> learnStore(Store store) => _saveIdentity(
         storeCode: store.code,
         storeName: store.name,
@@ -322,4 +382,3 @@ class ReferenceCache {
         isActive: row['is_active'] == 1,
       );
 }
-

@@ -181,6 +181,7 @@ class OperationQueue implements SyncQueue, SyncableQueue {
   }
 
   /// Lista as que precisam de gente: conflito e erro repetido.
+  @override
   Future<List<PendingOperation>> needingAttention() async {
     final db = await _db.open();
     final linhas = await db.query(
@@ -198,6 +199,7 @@ class OperationQueue implements SyncQueue, SyncableQueue {
   /// Não apaga na hora: uma operação recém-sincronizada ainda serve para
   /// explicar ao operador o que aconteceu com aquela venda, e a auditoria
   /// offline (RF37) é justamente sobre preservar origem.
+  @override
   Future<int> pruneSynced({Duration keepFor = const Duration(days: 7)}) async {
     final db = await _db.open();
     final limite = DateTime.now().toUtc().subtract(keepFor).toIso8601String();

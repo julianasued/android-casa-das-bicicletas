@@ -14,6 +14,7 @@ import '../presentation/sale/sale_finished_page.dart';
 import '../presentation/scanner/scanner_page.dart';
 import '../presentation/seller/seller_selection_page.dart';
 import '../presentation/setup/setup_page.dart';
+import '../presentation/sync/fila_de_sincronizacao_page.dart';
 import '../presentation/welcome/welcome_page.dart';
 import 'dependencies.dart';
 import 'routes.dart';
@@ -57,6 +58,7 @@ class CasaDasBicicletasApp extends StatelessWidget {
         SaleFinishedPage(finished: settings.arguments! as SaleFinished),
       AppRoutes.scanner => const ScannerPage(),
       AppRoutes.printerDiagnostics => const PrinterDiagnosticsPage(),
+      AppRoutes.syncQueue => const FilaDeSincronizacaoPage(),
       AppRoutes.m10Poc => const M10PocPage(),
       _ => null,
     };

@@ -15,6 +15,7 @@ import '../data/local/operation_queue.dart';
 import '../domain/repositories/sync_queue.dart';
 import '../domain/rules/offline_sale_context.dart';
 import '../data/repositories/sync_repository_impl.dart';
+import '../domain/usecases/pull_reference_data.dart';
 import '../domain/usecases/sync_pending_operations.dart';
 import '../platform/connectivity/sync_scheduler.dart';
 import '../data/local/reference_cache.dart';
@@ -141,17 +142,25 @@ class AppDependencies {
     // vezes é como se perde transação em Android. O arquivo é aberto na
     // primeira consulta, não aqui — subir o aplicativo não deve esperar disco.
     final banco = LocalDatabase();
-    final cache = ReferenceCache(banco);
+    // O cache é escopado pela loja do terminal: reconfigurar o aparelho para
+    // outra loja não pode deixar o catálogo e os clientes da anterior
+    // aparecendo na busca offline.
+    final cache = ReferenceCache(banco, lojaAtual: () => session.storeId);
     final fila = OperationQueue(banco);
     final connectivity = ConnectivityChannel();
 
     // A fila enche sozinha, mas não esvazia sozinha: este é o gatilho.
+    final sincronizacao = SyncRepositoryImpl(api);
     final scheduler = SyncScheduler(
       connectivity: connectivity,
       sync: SyncPendingOperations(
         queue: fila,
-        sync: SyncRepositoryImpl(api),
+        sync: sincronizacao,
       ),
+      // Mesma janela de rede do envio: é o `pull` que corrige o cache, porque a
+      // busca online filtra ativos e nunca traria de volta um produto
+      // desativado no servidor (RF34).
+      pull: PullReferenceData(sync: sincronizacao, cache: cache),
     );
 
     return AppDependencies(
@@ -224,15 +233,13 @@ class DependenciesScope extends InheritedWidget {
   final AppDependencies dependencies;
 
   static AppDependencies of(BuildContext context) {
-    final scope =
-        context.dependOnInheritedWidgetOfExactType<DependenciesScope>();
+    final scope = context.dependOnInheritedWidgetOfExactType<DependenciesScope>();
     assert(scope != null, 'DependenciesScope ausente acima deste widget.');
     return scope!.dependencies;
   }
 
   @override
-  bool updateShouldNotify(DependenciesScope oldWidget) =>
-      oldWidget.dependencies != dependencies;
+  bool updateShouldNotify(DependenciesScope oldWidget) => oldWidget.dependencies != dependencies;
 }
 
 extension DependenciesContext on BuildContext {

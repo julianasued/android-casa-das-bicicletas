@@ -202,17 +202,47 @@ class _HomePageState extends State<HomePage> {
     } else if (fila.isEmpty) {
       partes.add('nada esperando envio');
     } else {
-      partes.add(
-        fila.outstanding == 1
-            ? '1 operação esperando envio'
-            : '${fila.outstanding} operações esperando envio',
-      );
+      // Os três estados, separados. Somados num número só — como estavam —,
+      // "3 operações esperando envio" misturava o que sobe sozinho com o que
+      // nunca vai subir sem decisão de gente (13.11).
+      if (fila.pending > 0) {
+        partes.add(
+          fila.pending == 1 ? '1 esperando envio' : '${fila.pending} esperando envio',
+        );
+      }
+      if (fila.failed > 0) {
+        partes.add(fila.failed == 1 ? '1 recusada' : '${fila.failed} recusadas');
+      }
+      if (fila.conflicting > 0) {
+        partes.add(
+          fila.conflicting == 1 ? '1 em conflito' : '${fila.conflicting} em conflito',
+        );
+      }
       if (fila.oldestPendingAt case final DateTime desde) {
-        partes.add('desde ${formatTime(desde)}');
+        partes.add('a mais antiga desde ${formatTime(desde)}');
       }
     }
 
     return partes.join(' · ');
+  }
+
+  /// A etiqueta do cartão da sincronização.
+  ///
+  /// Conflito vence recusa, e recusa vence pendência: o que precisa de gente
+  /// aparece primeiro, porque é o que não se resolve esperando.
+  _Etiqueta get _etiquetaDaFila {
+    final fila = _fila;
+    if (fila == null) return const _Etiqueta('VERIFICANDO', _Estado.neutro);
+    if (fila.conflicting > 0) {
+      return _Etiqueta('${fila.conflicting} EM CONFLITO', _Estado.ruim);
+    }
+    if (fila.failed > 0) {
+      return _Etiqueta('${fila.failed} RECUSADA${fila.failed > 1 ? 'S' : ''}', _Estado.ruim);
+    }
+    if (fila.pending > 0) {
+      return _Etiqueta('${fila.pending} NA FILA', _Estado.atencao);
+    }
+    return const _Etiqueta('EM DIA', _Estado.bom);
   }
 
   @override
@@ -249,6 +279,7 @@ class _HomePageState extends State<HomePage> {
                       online: online,
                       etiquetaDoLeitor: _etiquetaDoLeitor,
                       etiquetaDaImpressora: _etiquetaDaImpressora,
+                      etiquetaDaFila: _etiquetaDaFila,
                       resumoDoSistema: _resumoDoSistema,
                       versao: deps.environment.appVersion,
                       host: _hostDaApi(deps.apiClient.baseUrl),
@@ -256,6 +287,7 @@ class _HomePageState extends State<HomePage> {
                       onNovaVenda: _novaVenda,
                       onLeitor: () => _abrir(AppRoutes.scanner),
                       onImpressora: () => _abrir(AppRoutes.printerDiagnostics),
+                      onFila: () => _abrir(AppRoutes.syncQueue),
                       onTeste: () => _abrir(AppRoutes.m10Poc),
                     );
                   },
@@ -458,6 +490,7 @@ class _Corpo extends StatelessWidget {
     required this.online,
     required this.etiquetaDoLeitor,
     required this.etiquetaDaImpressora,
+    required this.etiquetaDaFila,
     required this.resumoDoSistema,
     required this.versao,
     required this.host,
@@ -465,6 +498,7 @@ class _Corpo extends StatelessWidget {
     required this.onNovaVenda,
     required this.onLeitor,
     required this.onImpressora,
+    required this.onFila,
     required this.onTeste,
   });
 
@@ -474,6 +508,7 @@ class _Corpo extends StatelessWidget {
   final bool online;
   final _Etiqueta etiquetaDoLeitor;
   final _Etiqueta etiquetaDaImpressora;
+  final _Etiqueta etiquetaDaFila;
   final String resumoDoSistema;
   final String versao;
   final String host;
@@ -481,6 +516,7 @@ class _Corpo extends StatelessWidget {
   final VoidCallback onNovaVenda;
   final VoidCallback onLeitor;
   final VoidCallback onImpressora;
+  final VoidCallback onFila;
   final VoidCallback onTeste;
 
   @override
@@ -507,6 +543,20 @@ class _Corpo extends StatelessWidget {
         acao: 'VER ESTADO',
         etiqueta: etiquetaDaImpressora,
         onTap: onImpressora,
+      ),
+      // A fila fica entre as ferramentas, e não escondida no rodapé: é a única
+      // delas que guarda venda já feita. O rodapé continua resumindo, mas um
+      // texto corrido não se toca (OFF-008).
+      _Ferramenta(
+        elastico: !compacto,
+        icone: Icons.sync_outlined,
+        cor: Marca.azul,
+        fundoDoIcone: _Cor.azulFundo,
+        titulo: 'SINCRONIZAÇÃO',
+        descricao: 'O que ainda não subiu, o que travou e envio manual',
+        acao: 'VER A FILA',
+        etiqueta: etiquetaDaFila,
+        onTap: onFila,
       ),
       _Ferramenta(
         elastico: !compacto,

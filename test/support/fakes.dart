@@ -22,7 +22,9 @@ import 'package:casa_das_bicicletas/data/repositories/sale_repository_impl.dart'
 import 'package:casa_das_bicicletas/data/session/secure_store.dart';
 import 'package:casa_das_bicicletas/data/session/session_manager.dart';
 import 'package:casa_das_bicicletas/domain/ports/customer_display.dart';
+import 'package:casa_das_bicicletas/domain/repositories/sync_queue.dart';
 import 'package:casa_das_bicicletas/platform/connectivity/connectivity_channel.dart';
+import 'package:casa_das_bicicletas/platform/connectivity/sync_scheduler.dart';
 import 'package:casa_das_bicicletas/platform/device/device_channel.dart';
 import 'package:casa_das_bicicletas/platform/printer/printer_channel.dart';
 import 'package:casa_das_bicicletas/platform/scanner/fake_barcode_scanner.dart';
@@ -85,13 +87,13 @@ HttpResponse errorResponse({
 /// decidir a rota, o aplicativo nunca saía do "Abrindo o terminal..." e todo
 /// `pumpAndSettle` estourava. O canal continua sendo o de verdade; o que se
 /// substitui é só o outro lado da fronteira.
-void _stubPlatformChannels() {
+void _stubPlatformChannels({bool online = true}) {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
   messenger.setMockMethodCallHandler(
     const MethodChannel(ConnectivityChannel.methodChannelName),
-    (call) async => call.method == 'isOnline' ? true : null,
+    (call) async => call.method == 'isOnline' ? online : null,
   );
 
   // O terminal homologado, para que a tela de configuração mostre o aparelho.
@@ -116,9 +118,14 @@ AppDependencies buildTestDependencies({
   CustomerDisplay? customerDisplay,
   SecureStore? secureStore,
   String baseUrl = 'https://api.teste.local/api/v1/',
+  SyncQueue? syncQueue,
+  SyncScheduler? syncScheduler,
+  /// O que o canal de rede responde. A tela da fila muda com isto: sem rede,
+  /// o botão de enviar não deve nem ficar disponível.
+  bool online = true,
 }) {
   TestWidgetsFlutterBinding.ensureInitialized();
-  _stubPlatformChannels();
+  _stubPlatformChannels(online: online);
 
   final environment = AppEnvironment(
     apiBaseUrl: baseUrl,
@@ -151,6 +158,8 @@ AppDependencies buildTestDependencies({
     customerDisplay: customerDisplay ?? FakeCustomerDisplay(),
     connectivity: ConnectivityChannel(),
     device: const DeviceChannel(),
+    syncQueue: syncQueue,
+    syncScheduler: syncScheduler,
   );
 }
 

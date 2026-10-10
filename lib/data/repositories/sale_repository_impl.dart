@@ -68,7 +68,14 @@ class SaleRepositoryImpl implements SaleRepository {
         // comportamento antigo em vez de recusar a venda.
         if (draft.discount.amount case final negociado?)
           'discount_amount': negociado.toApiString(),
-        'created_offline': false,
+        // `created_offline` não vai aqui. Era `false` fixo, e este mesmo
+        // payload é o que a fila reusa (`offline_sale_context.operationFor`):
+        // a venda feita sem rede subia afirmando que tinha sido feita com rede,
+        // e nada no sistema a distinguia depois (RF37).
+        //
+        // A origem é do caminho, não do corpo — o servidor a deriva: pela fila,
+        // offline; por esta rota, online. É a mesma razão pela qual `seller_id`
+        // só existe no payload da operação, e não no desta rota.
         'items': [
           for (final line in draft.lines)
             if (line.isManual)

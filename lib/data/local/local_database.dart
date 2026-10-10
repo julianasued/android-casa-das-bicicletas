@@ -25,7 +25,11 @@ class LocalDatabase {
   static const String fileName = 'casa_das_bicicletas.db';
 
   /// Sobe quando o esquema muda; cada degrau precisa de um `onUpgrade`.
-  static const int schemaVersion = 3;
+  ///
+  /// Os comandos de cada degrau são escritos de forma idempotente — `IF NOT
+  /// EXISTS`, ou recriar o que é descartável: eles podem rodar mais de uma vez
+  /// no mesmo banco (ver `onUpgrade`).
+  static const int schemaVersion = 5;
 
   final DatabaseFactory _factory;
   final String? _path;
@@ -54,12 +58,36 @@ class LocalDatabase {
           // Apagar e recriar não é migração: a partir da Fase 2 este banco
           // guarda vendas que ainda não chegaram ao servidor, e perdê-las é
           // perder dinheiro que já saiu da loja.
+          //
+          // Cada degrau é idempotente (`IF NOT EXISTS`) porque pode rodar duas
+          // vezes: o APK é instalado por arquivo no M10, e voltar uma versão
+          // rebaixa o número gravado no banco — o degrau seguinte é então
+          // reexecutado sobre tabelas que já existem. Sem isso, a abertura
+          // falhava com "table already exists" e **o banco inteiro ficava
+          // inacessível**, inclusive a fila de vendas não enviadas.
           for (var versao = from + 1; versao <= to; versao++) {
             for (final comando in _migrations[versao] ?? const <String>[]) {
               await db.execute(comando);
             }
+            await _ajustes[versao]?.call(db);
           }
         },
+        // Banco mais novo do que este código: aceita como está.
+        //
+        // Acontece quando alguém instala um APK mais novo e volta para este.
+        // **Este vazio é o mesmo que o padrão do `sqflite` faz** — sem
+        // `onDowngrade` ele não recusa nem apaga, só rebaixa o número gravado
+        // (`database_mixin.dart`, `setVersion` ao fim do bloco de versão). Está
+        // escrito por dois motivos: deixar a escolha visível e ocupar o lugar,
+        // porque a opção pronta para este caso é `onDatabaseDowngradeDelete`,
+        // que **apaga o banco** — aqui, apagar vendas que o servidor ainda não
+        // viu.
+        //
+        // Esquema com mais tabelas do que este código conhece não o atrapalha:
+        // ele lê o subconjunto que entende. O efeito colateral é o número cair,
+        // e por isso o APK novo reexecuta os degraus dele quando voltar — que é
+        // o que o `IF NOT EXISTS` de cada degrau torna inofensivo.
+        onDowngrade: (db, from, to) async {},
       ),
     );
 
@@ -78,9 +106,36 @@ class LocalDatabase {
   /// ele já sabe — nada nasce aqui. Quem nasce no terminal é a venda, e isso é
   /// da Fase 2, com identificador próprio.
   static const List<String> _schema = [
+    ..._createCachedProduct,
+    ..._createCachedCustomer,
     '''
-    CREATE TABLE cached_product (
+    CREATE TABLE IF NOT EXISTS cached_category (
+      id        INTEGER PRIMARY KEY,
+      code      TEXT    NOT NULL UNIQUE,
+      name      TEXT    NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      cached_at TEXT    NOT NULL
+    )
+    ''',
+    _createTerminalIdentity,
+    _createReferenceSync,
+    ..._createQueue,
+  ];
+
+  /// Catálogo em cache, **escopado por loja** (RF34).
+  ///
+  /// `store_id` existe porque o terminal pode ser reconfigurado para outra
+  /// loja: sem ele, o catálogo e os preços da loja anterior continuavam
+  /// aparecendo na busca offline, e a venda sairia com o preço de outro lugar.
+  static const List<String> _createCachedProduct = [
+    _tabelaCachedProduct,
+    ..._indicesCachedProduct,
+  ];
+
+  static const String _tabelaCachedProduct = '''
+    CREATE TABLE IF NOT EXISTS cached_product (
       id            INTEGER PRIMARY KEY,
+      store_id      INTEGER,
       sku           TEXT    NOT NULL,
       name          TEXT    NOT NULL,
       category_code TEXT    NOT NULL,
@@ -90,15 +145,28 @@ class LocalDatabase {
       is_active     INTEGER NOT NULL DEFAULT 1,
       cached_at     TEXT    NOT NULL
     )
-    ''',
-    // A busca do balcão é por nome e por código lido no leitor; as duas
-    // precisam responder antes do cliente perder a paciência.
-    'CREATE INDEX idx_cached_product_name ON cached_product (name)',
-    'CREATE INDEX idx_cached_product_barcode ON cached_product (barcode)',
-    'CREATE INDEX idx_cached_product_sku ON cached_product (sku)',
-    '''
-    CREATE TABLE cached_customer (
+    ''';
+
+  /// A busca do balcão é por nome e por código lido no leitor; as duas precisam
+  /// responder antes do cliente perder a paciência.
+  static const List<String> _indicesCachedProduct = [
+    'CREATE INDEX IF NOT EXISTS idx_cached_product_name ON cached_product (name)',
+    'CREATE INDEX IF NOT EXISTS idx_cached_product_barcode ON cached_product (barcode)',
+    'CREATE INDEX IF NOT EXISTS idx_cached_product_sku ON cached_product (sku)',
+    'CREATE INDEX IF NOT EXISTS idx_cached_product_store ON cached_product (store_id)',
+  ];
+
+  /// Clientes em cache, pelo mesmo motivo — e com um agravante: aqui há CPF,
+  /// telefone e endereço, que não devem sobrar no aparelho de outra loja.
+  static const List<String> _createCachedCustomer = [
+    _tabelaCachedCustomer,
+    ..._indicesCachedCustomer,
+  ];
+
+  static const String _tabelaCachedCustomer = '''
+    CREATE TABLE IF NOT EXISTS cached_customer (
       id        INTEGER PRIMARY KEY,
+      store_id  INTEGER,
       name      TEXT    NOT NULL,
       document  TEXT,
       phone     TEXT,
@@ -106,19 +174,11 @@ class LocalDatabase {
       is_active INTEGER NOT NULL DEFAULT 1,
       cached_at TEXT    NOT NULL
     )
-    ''',
-    'CREATE INDEX idx_cached_customer_name ON cached_customer (name)',
-    '''
-    CREATE TABLE cached_category (
-      id        INTEGER PRIMARY KEY,
-      code      TEXT    NOT NULL UNIQUE,
-      name      TEXT    NOT NULL,
-      is_active INTEGER NOT NULL DEFAULT 1,
-      cached_at TEXT    NOT NULL
-    )
-    ''',
-    _createTerminalIdentity,
-    ..._createQueue,
+    ''';
+
+  static const List<String> _indicesCachedCustomer = [
+    'CREATE INDEX IF NOT EXISTS idx_cached_customer_name ON cached_customer (name)',
+    'CREATE INDEX IF NOT EXISTS idx_cached_customer_store ON cached_customer (store_id)',
   ];
 
   /// Cada degrau de versão, para quem já tem o banco em campo.
@@ -128,7 +188,55 @@ class LocalDatabase {
   static const Map<int, List<String>> _migrations = {
     2: [_createTerminalIdentity],
     3: _createQueue,
+    // v4 está em `_ajustes`: acrescentar coluna preservando o que já existe
+    // não cabe numa lista de DDL idempotente (ver lá).
+    5: [_createReferenceSync],
   };
+
+  /// Degraus que precisam de código, não só de DDL.
+  ///
+  /// Existe porque `ALTER TABLE ADD COLUMN` não aceita `IF NOT EXISTS` no
+  /// SQLite, e o `onUpgrade` precisa poder rodar o mesmo degrau duas vezes
+  /// (ver a explicação lá). A alternativa seria recriar a tabela — mas o cache
+  /// recriado deixa o terminal **sem catálogo** logo depois de atualizar o
+  /// APK, que é justamente quando ele pode estar sem rede e precisando vender.
+  static final Map<int, Future<void> Function(Database)> _ajustes = {
+    // v4 — `store_id` no cache (RF34). Sem ele, terminal reconfigurado para
+    // outra loja continuava mostrando o catálogo e os clientes da anterior na
+    // busca offline. As linhas que já estavam ali ficam com `store_id` nulo:
+    // são de antes de existir escopo, e a primeira busca online as substitui
+    // já com a loja certa.
+    4: (db) async {
+      // A ordem importa: tabela, coluna, índice.
+      //
+      // A tabela pode não existir — a cadeia de migração nunca a criou para
+      // quem veio da v1 —, e aí nasce já com a coluna. Se existir, é o `ALTER`
+      // que acrescenta. E o índice sobre `store_id` só pode vir depois das
+      // duas coisas.
+      await db.execute(_tabelaCachedProduct);
+      await db.execute(_tabelaCachedCustomer);
+      await _acrescentarColuna(db, 'cached_product', 'store_id', 'INTEGER');
+      await _acrescentarColuna(db, 'cached_customer', 'store_id', 'INTEGER');
+      for (final comando in [..._indicesCachedProduct, ..._indicesCachedCustomer]) {
+        await db.execute(comando);
+      }
+    },
+  };
+
+  /// `ALTER TABLE ADD COLUMN` que pode rodar duas vezes.
+  static Future<void> _acrescentarColuna(
+    Database db,
+    String tabela,
+    String coluna,
+    String tipo,
+  ) async {
+    final colunas = await db.rawQuery('PRAGMA table_info($tabela)');
+    // Lista vazia é tabela que não existe — toda tabela tem ao menos uma
+    // coluna. Não é erro: o degrau acabou de criá-la, já com a coluna.
+    if (colunas.isEmpty) return;
+    if (colunas.any((linha) => linha['name'] == coluna)) return;
+    await db.execute('ALTER TABLE $tabela ADD COLUMN $coluna $tipo');
+  }
 
   /// Fila de operações (RF35).
   ///
@@ -144,7 +252,7 @@ class LocalDatabase {
   /// entre a venda e a sincronização.
   static const List<String> _createQueue = [
     '''
-    CREATE TABLE pending_operation (
+    CREATE TABLE IF NOT EXISTS pending_operation (
       operation_id TEXT    PRIMARY KEY,
       type         TEXT    NOT NULL,
       payload      TEXT    NOT NULL,
@@ -160,7 +268,7 @@ class LocalDatabase {
     ''',
     // A fila é lida por status e enviada na ordem em que aconteceu: o servidor
     // precisa ver a venda antes do pagamento dela.
-    'CREATE INDEX idx_pending_status ON pending_operation (status, occurred_at)',
+    'CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_operation (status, occurred_at)',
   ];
 
   /// Identidade do terminal: o que o documento precisa e o `SaleDraft` não tem.
@@ -169,8 +277,26 @@ class LocalDatabase {
   /// loja. `learned_at` registra quando foi aprendido: um endereço de loja de
   /// seis meses atrás ainda serve para o papel, mas quem depura merece saber a
   /// idade do dado.
+  /// Até quando o cache já recebeu dados de referência do servidor (RF34).
+  ///
+  /// Uma linha só, como a identidade: um aparelho é um terminal de uma loja. É o
+  /// `synced_at` que o `GET /sync/pull/` devolve, e que a chamada seguinte manda
+  /// de volta em `?since=` — guardar a hora do servidor, e não a nossa, é o que
+  /// evita perder mudança por diferença de relógio.
+  ///
+  /// `store_id` porque o marcador é da loja: terminal reconfigurado não pode
+  /// continuar pedindo "o que mudou desde" um instante que vale para outro
+  /// catálogo.
+  static const String _createReferenceSync = '''
+    CREATE TABLE IF NOT EXISTS reference_sync (
+      id        INTEGER PRIMARY KEY CHECK (id = 1),
+      store_id  INTEGER,
+      synced_at TEXT NOT NULL
+    )
+  ''';
+
   static const String _createTerminalIdentity = '''
-    CREATE TABLE terminal_identity (
+    CREATE TABLE IF NOT EXISTS terminal_identity (
       id             INTEGER PRIMARY KEY CHECK (id = 1),
       store_code     TEXT,
       store_name     TEXT,

@@ -8,6 +8,7 @@ library;
 import 'package:casa_das_bicicletas/core/failure.dart';
 import 'package:casa_das_bicicletas/core/result.dart';
 import 'package:casa_das_bicicletas/domain/entities/pending_operation.dart';
+import 'package:casa_das_bicicletas/domain/entities/reference_snapshot.dart';
 import 'package:casa_das_bicicletas/domain/entities/sync_outcome.dart';
 import 'package:casa_das_bicicletas/domain/repositories/sync_repository.dart';
 import 'package:casa_das_bicicletas/domain/usecases/sync_pending_operations.dart';
@@ -47,8 +48,7 @@ class _FilaFalsa implements SyncableQueue {
   }
 
   @override
-  Future<void> markFailed(String operationId, String error) async =>
-      falhas[operationId] = error;
+  Future<void> markFailed(String operationId, String error) async => falhas[operationId] = error;
 
   @override
   Future<void> markConflicting(
@@ -57,6 +57,15 @@ class _FilaFalsa implements SyncableQueue {
     String? error,
   }) async =>
       conflitos[operationId] = conflictId;
+
+  /// Quantas vezes a faxina foi pedida, e com que janela.
+  final List<Duration> faxinas = [];
+
+  @override
+  Future<int> pruneSynced({Duration keepFor = const Duration(days: 7)}) async {
+    faxinas.add(keepFor);
+    return 0;
+  }
 }
 
 class _EnvioFalso implements SyncRepository {
@@ -75,6 +84,11 @@ class _EnvioFalso implements SyncRepository {
     enviado = operations;
     return response;
   }
+
+  /// Este caso de uso não baixa nada; quem usa o `pull` é o
+  /// `PullReferenceData`, que tem teste próprio.
+  @override
+  Future<Result<ReferenceSnapshot>> pull({DateTime? since}) => throw UnimplementedError();
 }
 
 void main() {
@@ -226,8 +240,7 @@ void main() {
   });
 
   group('falha do lote inteiro', () {
-    test('não marca ninguém, para não inflar a contagem de tentativas',
-        () async {
+    test('não marca ninguém, para não inflar a contagem de tentativas', () async {
       // Rede caiu no meio do envio: o problema não é das operações.
       final fila = _FilaFalsa([_operacao('op-1'), _operacao('op-2')]);
       final usecase = SyncPendingOperations(
@@ -284,6 +297,71 @@ void main() {
     });
   });
 
+  group('faxina da fila (OFF-008)', () {
+    test('depois de enviar, limpa o que já foi sincronizado', () async {
+      // Nada apagava operação sincronizada: a tabela só crescia, num aparelho
+      // que precisa durar anos de balcão.
+      final fila = _FilaFalsa([_operacao('op-1')]);
+      final usecase = SyncPendingOperations(
+        queue: fila,
+        sync: _EnvioFalso(
+          const Ok([
+            SyncOutcome(operationId: 'op-1', status: SyncStatus.sincronizado),
+          ]),
+        ),
+      );
+
+      await usecase();
+
+      expect(fila.faxinas, [const Duration(days: 7)]);
+    });
+
+    test('a janela de retenção é configurável', () async {
+      final fila = _FilaFalsa([_operacao('op-1')]);
+      final usecase = SyncPendingOperations(
+        queue: fila,
+        sync: _EnvioFalso(const Ok(<SyncOutcome>[])),
+        retencao: const Duration(days: 30),
+      );
+
+      await usecase();
+
+      expect(fila.faxinas, [const Duration(days: 30)]);
+    });
+
+    test('lote vazio não chama a faxina: não há o que limpar', () async {
+      final fila = _FilaFalsa([]);
+      final usecase = SyncPendingOperations(
+        queue: fila,
+        sync: _EnvioFalso(const Ok(<SyncOutcome>[])),
+      );
+
+      await usecase();
+
+      expect(fila.faxinas, isEmpty);
+    });
+
+    test('falha na faxina não derruba a sincronização', () async {
+      // Fila cheia de histórico é problema de disco; lote não enviado é
+      // problema de dinheiro.
+      final fila = _FilaQueFalhaNaFaxina([_operacao('op-1')]);
+      final usecase = SyncPendingOperations(
+        queue: fila,
+        sync: _EnvioFalso(
+          const Ok([
+            SyncOutcome(operationId: 'op-1', status: SyncStatus.sincronizado),
+          ]),
+        ),
+      );
+
+      final resultado = await usecase();
+
+      expect(resultado, isA<Ok<SyncReport>>());
+      expect((resultado as Ok<SyncReport>).value.accepted, 1);
+      expect(fila.sincronizadas, ['op-1']);
+    });
+  });
+
   group('tamanho do lote', () {
     test('respeita o limite configurado', () async {
       final fila = _FilaFalsa([
@@ -301,4 +379,13 @@ void main() {
       expect(envio.enviado, hasLength(3));
     });
   });
+}
+
+/// Fila cuja faxina explode: o envio tem de sobreviver a isso.
+class _FilaQueFalhaNaFaxina extends _FilaFalsa {
+  _FilaQueFalhaNaFaxina(super.lote);
+
+  @override
+  Future<int> pruneSynced({Duration keepFor = const Duration(days: 7)}) async =>
+      throw StateError('disco cheio');
 }
