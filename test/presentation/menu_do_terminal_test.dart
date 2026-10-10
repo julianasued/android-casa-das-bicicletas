@@ -7,9 +7,11 @@
 library;
 
 import 'package:casa_das_bicicletas/app/dependencies.dart';
+import 'package:casa_das_bicicletas/domain/entities/pending_operation.dart';
 import 'package:casa_das_bicicletas/domain/entities/seller.dart';
 import 'package:casa_das_bicicletas/domain/entities/terminal_session.dart';
 import 'package:casa_das_bicicletas/domain/ports/document_printer.dart';
+import 'package:casa_das_bicicletas/domain/repositories/sync_queue.dart';
 import 'package:casa_das_bicicletas/platform/printer/printer_channel.dart';
 import 'package:casa_das_bicicletas/presentation/home/home_page.dart';
 import 'package:flutter/material.dart';
@@ -28,10 +30,14 @@ void main() {
   Future<AppDependencies> abrir(
     WidgetTester tester, {
     FakeDocumentPrinter? impressora,
+    QueueSummary? fila,
   }) async {
     usarTelaDaReferencia(tester);
 
-    final deps = buildTestDependencies(printer: impressora);
+    final deps = buildTestDependencies(
+      printer: impressora,
+      syncQueue: fila == null ? null : _FilaComResumo(fila),
+    );
     await deps.session.saveConfiguration(deviceId: 'M10-0001', storeId: 1);
     await deps.session.saveStoreCode('L1');
     await deps.session.saveTerminal(
@@ -69,7 +75,7 @@ void main() {
   }
 
   group('o que o menu mostra', () {
-    testWidgets('vendedor, terminal e as três ferramentas', (tester) async {
+    testWidgets('vendedor, terminal e as quatro ferramentas', (tester) async {
       await abrir(tester);
 
       expect(find.text('CASA DAS BICICLETAS'), findsOneWidget);
@@ -79,6 +85,7 @@ void main() {
       expect(find.text('NOVA VENDA'), findsOneWidget);
       expect(find.text('LEITOR DE CÓDIGO'), findsOneWidget);
       expect(find.text('IMPRESSORA'), findsOneWidget);
+      expect(find.text('SINCRONIZAÇÃO'), findsOneWidget);
       expect(find.text('TESTE ELGIN M10'), findsOneWidget);
     });
 
@@ -96,6 +103,55 @@ void main() {
 
       expect(find.textContaining('Impressora pronta'), findsOneWidget);
       expect(find.textContaining('app '), findsOneWidget);
+    });
+  });
+
+  group('a fila de sincronização no menu (OFF-008)', () {
+    testWidgets('o rodapé separa os estados em vez de somar', (tester) async {
+      // Antes: '6 operações esperando envio'. O número único misturava o que
+      // sobe sozinho com o que espera decisão de gente (13.11).
+      await abrir(
+        tester,
+        fila: const QueueSummary(pending: 3, failed: 2, conflicting: 1),
+      );
+
+      expect(find.textContaining('3 esperando envio'), findsOneWidget);
+      expect(find.textContaining('2 recusadas'), findsOneWidget);
+      expect(find.textContaining('1 em conflito'), findsOneWidget);
+      expect(find.textContaining('6 operações'), findsNothing);
+    });
+
+    testWidgets('a etiqueta mostra o conflito antes da pendência', (tester) async {
+      // O que precisa de gente vem primeiro: é o que não se resolve esperando.
+      await abrir(
+        tester,
+        fila: const QueueSummary(pending: 5, failed: 1, conflicting: 2),
+      );
+
+      expect(find.text('2 EM CONFLITO'), findsOneWidget);
+      expect(find.text('5 NA FILA'), findsNothing);
+    });
+
+    testWidgets('fila vazia é EM DIA, e o cartão continua alcançável', (tester) async {
+      await abrir(
+        tester,
+        fila: const QueueSummary(pending: 0, failed: 0, conflicting: 0),
+      );
+
+      expect(find.text('EM DIA'), findsOneWidget);
+      expect(find.textContaining('nada esperando envio'), findsOneWidget);
+    });
+
+    testWidgets('tocar o cartão abre a tela da fila', (tester) async {
+      await abrir(
+        tester,
+        fila: const QueueSummary(pending: 1, failed: 0, conflicting: 0),
+      );
+
+      await tester.tap(find.text('VER A FILA'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('rota: /sincronizacao'), findsOneWidget);
     });
   });
 
@@ -210,4 +266,20 @@ void main() {
       }
     });
   });
+}
+
+/// Fila que só sabe o próprio resumo: é o que o menu lê.
+class _FilaComResumo implements SyncQueue {
+  const _FilaComResumo(this._resumo);
+
+  final QueueSummary _resumo;
+
+  @override
+  Future<void> enqueue(PendingOperation operation) async {}
+
+  @override
+  Future<QueueSummary> summary() async => _resumo;
+
+  @override
+  Future<List<PendingOperation>> needingAttention() async => const [];
 }

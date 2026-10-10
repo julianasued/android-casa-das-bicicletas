@@ -29,6 +29,9 @@ abstract interface class SyncableQueue {
     String? conflictId,
     String? error,
   });
+
+  /// Apaga o que já foi sincronizado há mais de [keepFor].
+  Future<int> pruneSynced({Duration keepFor});
 }
 
 class SyncPendingOperations {
@@ -36,13 +39,18 @@ class SyncPendingOperations {
     required SyncableQueue queue,
     required SyncRepository sync,
     int batchSize = 50,
+    Duration retencao = const Duration(days: 7),
   })  : _queue = queue,
         _sync = sync,
-        _batchSize = batchSize;
+        _batchSize = batchSize,
+        _retencao = retencao;
 
   final SyncableQueue _queue;
   final SyncRepository _sync;
   final int _batchSize;
+
+  /// Quanto tempo a operação sincronizada fica guardada antes da faxina.
+  final Duration _retencao;
 
   bool _running = false;
 
@@ -66,9 +74,29 @@ class SyncPendingOperations {
       }
 
       final desfechos = (enviado as Ok<List<SyncOutcome>>).value;
-      return Ok(await _apply(lote, desfechos));
+      final relatorio = await _apply(lote, desfechos);
+      await _limpar();
+      return Ok(relatorio);
     } finally {
       _running = false;
+    }
+  }
+
+  /// Tira da fila o que já cumpriu seu papel.
+  ///
+  /// Sem isto a tabela só cresce: nada apagava operação sincronizada, e o
+  /// aparelho tem 64 GB para durar anos de balcão. A limpeza fica **depois** do
+  /// envio, nunca antes, e nunca falha a sincronização — perder a faxina é
+  /// irrelevante; perder o lote não.
+  ///
+  /// A janela de uma semana não é cautela vaga: operação recém-sincronizada
+  /// ainda serve para explicar ao operador o que aconteceu com aquela venda.
+  Future<void> _limpar() async {
+    try {
+      await _queue.pruneSynced(keepFor: _retencao);
+    } catch (_) {
+      // Fila cheia de histórico é problema de disco; lote não enviado é
+      // problema de dinheiro. Este erro não sobe.
     }
   }
 
