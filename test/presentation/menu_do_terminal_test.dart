@@ -282,4 +282,7 @@ class _FilaComResumo implements SyncQueue {
 
   @override
   Future<List<PendingOperation>> needingAttention() async => const [];
+
+  @override
+  Future<PendingOperation?> find(String operationId) async => null;
 }

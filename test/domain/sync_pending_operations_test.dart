@@ -88,7 +88,7 @@ class _EnvioFalso implements SyncRepository {
   /// Este caso de uso não baixa nada; quem usa o `pull` é o
   /// `PullReferenceData`, que tem teste próprio.
   @override
-  Future<Result<ReferenceSnapshot>> pull({DateTime? since}) => throw UnimplementedError();
+  Future<Result<ReferenceSnapshot>> pull({DateTime? since, String? cursor}) => throw UnimplementedError();
 }
 
 void main() {

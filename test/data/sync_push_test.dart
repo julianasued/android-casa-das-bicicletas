@@ -103,6 +103,24 @@ void main() {
     expect(desfecho.message, isNull);
   });
 
+  test('o lote não leva chave de idempotência — OFF-012', () async {
+    // Ia uma chave nova a cada envio, com um comentário prometendo que ela
+    // 'evita o reprocessamento no servidor'. Chave nova nunca casa com nada, e
+    // `POST /sync/push/` não é decorada com `@idempotent`: o cabeçalho era
+    // ignorado do outro lado. Quem protege é o `operation_id` (RF36).
+    final transporte = RecordingTransport(
+      (_) => jsonResponse(_resultado(status: 'SINCRONIZADO', serverId: 1)),
+    );
+    await preparar(transporte);
+
+    await repository.push([_operacaoNaFila()]);
+
+    expect(
+      transporte.lastRequest.headers.containsKey('X-Idempotency-Key'),
+      isFalse,
+    );
+  });
+
   test('recusa sem corpo de erro não quebra o mapeamento', () async {
     // O servidor sempre manda o `error` numa recusa, mas o terminal não pode
     // depender disso para não perder o lote inteiro: a frase genérica da fila

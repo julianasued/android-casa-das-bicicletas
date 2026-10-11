@@ -14,6 +14,14 @@ abstract interface class SyncQueue {
   /// O que ainda não chegou ao servidor, para a tela avisar o operador.
   Future<QueueSummary> summary();
 
+  /// Uma operação pela identidade que o terminal lhe deu (RF36).
+  ///
+  /// A tela de desfecho da venda precisa disto: a venda offline nasce com `id`
+  /// zero — o autoincremento é do servidor — e só ganha um quando a operação
+  /// sincroniza. Sem consultar a fila, "conferir pagamento" e "reimprimir"
+  /// chamariam `/sales/0/` e trariam um `404` para a frente do cliente.
+  Future<PendingOperation?> find(String operationId);
+
   /// O que não vai sair da fila sozinho: conflito e recusa.
   ///
   /// O resumo diz **quantas**; isto diz **quais**, com o motivo que o servidor

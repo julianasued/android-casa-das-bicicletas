@@ -43,11 +43,16 @@ class _PullFalso implements SyncRepository {
 
   final List<Result<ReferenceSnapshot>> respostas;
   final List<DateTime?> desdes = [];
+
+  /// Os cursores que o terminal devolveu, na ordem — é o que prova que ele
+  /// percorreu as páginas em vez de parar na primeira.
+  final List<String?> cursores = [];
   int chamadas = 0;
 
   @override
-  Future<Result<ReferenceSnapshot>> pull({DateTime? since}) async {
+  Future<Result<ReferenceSnapshot>> pull({DateTime? since, String? cursor}) async {
     desdes.add(since);
+    cursores.add(cursor);
     final resposta = respostas[chamadas.clamp(0, respostas.length - 1)];
     chamadas++;
     return resposta;
@@ -108,6 +113,145 @@ void main() {
     expect(servidor.desdes.first, isNull, reason: 'a primeira vez traz o retrato inteiro');
     expect(servidor.desdes.last, DateTime.utc(2026, 10, 9, 12));
     expect(await cache.lastReferenceSync(), DateTime.utc(2026, 10, 9, 18));
+  });
+
+  group('carga em páginas (OFF-011)', () {
+    test('percorre as páginas até o cursor acabar', () async {
+      // A carga de uma loja grande não cabe numa resposta: o terminal desiste
+      // em 20 segundos. Quem percorre é ele, devolvendo o cursor do servidor.
+      final servidor = _PullFalso([
+        Ok(ReferenceSnapshot(
+          syncedAt: DateTime.utc(2026, 10, 9, 12),
+          categories: const [ProductCategory(id: 1, code: 'PNEUS', name: 'Pneus')],
+          nextCursor: 'pagina-2',
+        )),
+        Ok(ReferenceSnapshot(
+          syncedAt: DateTime.utc(2026, 10, 9, 12),
+          products: [_pneu()],
+          nextCursor: 'pagina-3',
+        )),
+        Ok(ReferenceSnapshot(
+          syncedAt: DateTime.utc(2026, 10, 9, 12),
+          customers: const [Customer(id: 77, name: 'Maria Souza')],
+        )),
+      ]);
+
+      final resultado = await PullReferenceData(sync: servidor, cache: cache)();
+
+      expect(servidor.chamadas, 3);
+      expect(servidor.cursores, [null, 'pagina-2', 'pagina-3']);
+
+      // O relatório soma as páginas, não conta só a última.
+      final relatorio = (resultado as Ok<PullReport>).value;
+      expect(relatorio.categories, 1);
+      expect(relatorio.products, 1);
+      expect(relatorio.customers, 1);
+
+      expect(await cache.searchProducts(), hasLength(1));
+      expect(await cache.searchCustomers(query: 'Maria'), hasLength(1));
+    });
+
+    test('o marcador só avança depois da última página', () async {
+      // É aqui que a carga em páginas pode perder dado: gravar o marcador a
+      // cada página faria a chamada seguinte pedir `?since=` daquele instante,
+      // e as páginas que faltavam nunca seriam pedidas de novo.
+      final servidor = _PullFalso([
+        Ok(ReferenceSnapshot(
+          syncedAt: DateTime.utc(2026, 10, 9, 12),
+          products: [_pneu()],
+          nextCursor: 'pagina-2',
+        )),
+        Ok(ReferenceSnapshot(
+          syncedAt: DateTime.utc(2026, 10, 9, 12),
+          products: [_pneu(id: 2, nome: 'Câmara 26')],
+        )),
+      ]);
+
+      await PullReferenceData(sync: servidor, cache: cache)();
+
+      expect(await cache.lastReferenceSync(), DateTime.utc(2026, 10, 9, 12));
+      expect(await cache.searchProducts(), hasLength(2));
+    });
+
+    test('carga interrompida no meio não avança o marcador', () async {
+      // A interrupção que importa: a primeira página entrou, a segunda falhou.
+      // O cache fica com o que chegou — melhor que nada —, mas o marcador não
+      // se move, então a próxima chamada **refaz** a carga inteira. Interromper
+      // custa refazer; nunca perder.
+      final servidor = _PullFalso([
+        Ok(ReferenceSnapshot(
+          syncedAt: DateTime.utc(2026, 10, 9, 12),
+          products: [_pneu()],
+          nextCursor: 'pagina-2',
+        )),
+        const Err(NetworkFailure()),
+      ]);
+
+      final resultado = await PullReferenceData(sync: servidor, cache: cache)();
+
+      expect(resultado, isA<Err<PullReport>>());
+      expect(await cache.lastReferenceSync(), isNull);
+      expect(
+        await cache.searchProducts(),
+        hasLength(1),
+        reason: 'o que chegou antes da falha vale: o cache não é tudo-ou-nada',
+      );
+    });
+
+    test('depois de interromper, a carga recomeça do mesmo lugar', () async {
+      final servidor = _PullFalso([
+        Ok(ReferenceSnapshot(
+          syncedAt: DateTime.utc(2026, 10, 9, 12),
+          products: [_pneu()],
+          nextCursor: 'pagina-2',
+        )),
+        const Err(NetworkFailure()),
+        Ok(ReferenceSnapshot(
+          syncedAt: DateTime.utc(2026, 10, 9, 18),
+          products: [_pneu(), _pneu(id: 2, nome: 'Câmara 26')],
+        )),
+      ]);
+      final usecase = PullReferenceData(sync: servidor, cache: cache);
+
+      await usecase();
+      await usecase();
+
+      // Sem `since` nas duas vezes: o marcador não avançou na interrompida.
+      expect(servidor.desdes, [null, null, null]);
+      expect(await cache.lastReferenceSync(), DateTime.utc(2026, 10, 9, 18));
+      expect(await cache.searchProducts(), hasLength(2));
+    });
+
+    test('a mesma página aplicada duas vezes não duplica no cache', () async {
+      // O que garante que repetir é inofensivo: o cache é upsert. É por isso
+      // que o servidor pode entregar um registro duas vezes — numa retomada,
+      // por exemplo — sem estragar nada.
+      final pagina = ReferenceSnapshot(
+        syncedAt: DateTime.utc(2026, 10, 9, 12),
+        products: [_pneu()],
+        customers: const [Customer(id: 77, name: 'Maria Souza')],
+      );
+      final servidor = _PullFalso([Ok(pagina), Ok(pagina)]);
+      final usecase = PullReferenceData(sync: servidor, cache: cache);
+
+      await usecase();
+      await usecase();
+
+      expect(await cache.searchProducts(), hasLength(1));
+      expect(await cache.searchCustomers(query: 'Maria'), hasLength(1));
+    });
+
+    test('servidor sem paginação continua funcionando', () async {
+      // `next_cursor` ausente vira nulo no mapeador: uma página só, como antes.
+      final servidor = _PullFalso([
+        Ok(ReferenceSnapshot(syncedAt: DateTime.utc(2026, 10, 9, 12), products: [_pneu()])),
+      ]);
+
+      await PullReferenceData(sync: servidor, cache: cache)();
+
+      expect(servidor.chamadas, 1);
+      expect(await cache.lastReferenceSync(), DateTime.utc(2026, 10, 9, 12));
+    });
   });
 
   test('o retrato enche catálogo, clientes, categorias e a loja', () async {

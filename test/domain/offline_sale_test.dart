@@ -67,6 +67,9 @@ class _FilaEspia implements SyncQueue {
   Future<List<PendingOperation>> needingAttention() async => const [];
 
   @override
+  Future<PendingOperation?> find(String operationId) async => null;
+
+  @override
   Future<QueueSummary> summary() async => QueueSummary(
         pending: enfileiradas.length,
         failed: 0,

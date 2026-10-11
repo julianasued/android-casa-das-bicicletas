@@ -113,6 +113,8 @@ ReferenceSnapshot referenceSnapshotFromJson(Map<String, Object?> json) {
     categories: [
       for (final item in lista('product_categories')) categoryFromJson(item),
     ],
+    // Ausente em servidor que ainda não pagina: nulo significa 'acabou'.
+    nextCursor: readStringOrNull(json, 'next_cursor'),
   );
 }
 

@@ -109,6 +109,51 @@ void main() {
     );
   });
 
+  test('pede paginação: é o `page_size` que a liga no servidor', () async {
+    // Sem `page_size` o servidor manda a carga inteira — o contrato de antes,
+    // que o APK já instalado depende. Este terminal sabe percorrer páginas,
+    // então pede (§3.9.3, OFF-011).
+    await preparar(RecordingTransport((_) => jsonResponse(_corpoDoServidor())));
+
+    await repository.pull();
+
+    expect(transport.lastRequest.url.queryParameters['page_size'], '200');
+  });
+
+  test('o cursor da página anterior vai na querystring', () async {
+    await preparar(RecordingTransport((_) => jsonResponse(_corpoDoServidor())));
+
+    await repository.pull(cursor: 'eyJjIjoicHJvZHVjdHMifQ');
+
+    expect(
+      transport.lastRequest.url.queryParameters['cursor'],
+      'eyJjIjoicHJvZHVjdHMifQ',
+    );
+  });
+
+  test('lê o `next_cursor` que o servidor devolveu', () async {
+    final corpo = {..._corpoDoServidor(), 'next_cursor': 'proxima-pagina'};
+    await preparar(RecordingTransport((_) => jsonResponse(corpo)));
+
+    final resultado = await repository.pull();
+
+    final retrato = (resultado as Ok<ReferenceSnapshot>).value;
+    expect(retrato.nextCursor, 'proxima-pagina');
+    expect(retrato.hasMore, isTrue);
+  });
+
+  test('sem `next_cursor` no corpo, a carga acabou', () async {
+    // Servidor que ainda não pagina responde sem o campo: nulo é 'acabou', e
+    // não 'não sei'.
+    await preparar(RecordingTransport((_) => jsonResponse(_corpoDoServidor())));
+
+    final resultado = await repository.pull();
+
+    final retrato = (resultado as Ok<ReferenceSnapshot>).value;
+    expect(retrato.nextCursor, isNull);
+    expect(retrato.hasMore, isFalse);
+  });
+
   test('listas ausentes são listas vazias, não erro', () async {
     // O dia em que nada mudou: o servidor responde só com o instante.
     await preparar(

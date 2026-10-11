@@ -122,6 +122,7 @@ class OperationQueue implements SyncQueue, SyncableQueue {
     );
   }
 
+  @override
   Future<PendingOperation?> find(String operationId) async {
     final db = await _db.open();
     final linhas = await db.query(
