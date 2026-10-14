@@ -189,6 +189,62 @@ Future<Uint8List> qrCodePng(
   return png!.buffer.asUint8List();
 }
 
+/// Desenha [text] em branco sobre uma faixa preta da largura do papel.
+///
+/// É a impressão invertida que o SDK não oferece. O corpo parte de [fontSize]
+/// e encolhe até o texto caber na linha com a margem: faixa com texto cortado
+/// na borda é pior que faixa com letra um pouco menor.
+Future<Uint8List> bannerPng(
+  String text, {
+  double fontSize = 24,
+  int lineDots = paperDots,
+}) async {
+  const margemHorizontal = 12.0;
+  final larguraUtil = lineDots - 2 * margemHorizontal;
+
+  ui.Paragraph compor(double corpo) {
+    final construtor = ui.ParagraphBuilder(
+      ui.ParagraphStyle(textAlign: ui.TextAlign.center, maxLines: 1),
+    )
+      ..pushStyle(
+        ui.TextStyle(
+          color: const ui.Color(0xFFFFFFFF),
+          fontFamily: 'monospace',
+          fontWeight: ui.FontWeight.bold,
+          fontSize: corpo,
+        ),
+      )
+      ..addText(text);
+    // Largura infinita na medição: é o tamanho natural do texto que decide se
+    // o corpo precisa encolher.
+    return construtor.build()
+      ..layout(const ui.ParagraphConstraints(width: double.infinity));
+  }
+
+  var paragrafo = compor(fontSize);
+  if (paragrafo.maxIntrinsicWidth > larguraUtil) {
+    paragrafo = compor(fontSize * larguraUtil / paragrafo.maxIntrinsicWidth);
+  }
+  paragrafo.layout(ui.ParagraphConstraints(width: lineDots.toDouble()));
+
+  final margemVertical = paragrafo.height * 0.3;
+  final altura = (paragrafo.height + 2 * margemVertical).ceil();
+
+  final gravador = ui.PictureRecorder();
+  final canvas = ui.Canvas(gravador);
+  canvas.drawRect(
+    ui.Rect.fromLTWH(0, 0, lineDots.toDouble(), altura.toDouble()),
+    ui.Paint()..color = const ui.Color(0xFF000000),
+  );
+  canvas.drawParagraph(paragrafo, ui.Offset(0, margemVertical));
+
+  final imagem = await gravador.endRecording().toImage(lineDots, altura);
+  final png = await imagem.toByteData(format: ui.ImageByteFormat.png);
+  imagem.dispose();
+
+  return png!.buffer.asUint8List();
+}
+
 /// Quantos módulos o QR tem por linha, contados no desenho que o pacote
 /// devolve — a versão do código depende do dado, e não há como saber antes.
 int _modulosPorLinha(Iterable<BarcodeElement> matriz) {

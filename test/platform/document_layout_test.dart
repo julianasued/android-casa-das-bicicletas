@@ -8,7 +8,7 @@ import '../support/fakes.dart';
 void main() {
   const layout = DocumentLayout();
 
-  group('documento 1 (RF08)', () {
+  group('1ª via — nota de conferência (RF08)', () {
     late List<PrintCommand> commands;
     late String papel;
 
@@ -19,14 +19,27 @@ void main() {
     });
 
     test('traz tudo o que o §7 da integração exige', () {
-      expect(papel, contains('CASA DAS BICICLETAS CENTRO'));
-      expect(papel, contains('ENCAMINHAMENTO AO CAIXA'));
-      expect(papel, contains('#10482'));
+      // A identificação da empresa é o logo; o nome da loja é o que sai no
+      // lugar dele se a imagem falhar.
+      final logo = commands.whereType<PrintLogo>().single;
+      expect(logo.fallback, 'CASA DAS BICICLETAS CENTRO');
+      expect(commands.first, same(logo));
+
+      expect(papel, contains('NOTA DE CONFERÊNCIA'));
+      expect(papel, contains('1ª VIA'));
+      expect(papel, contains('SALE-L1-7F3A9C2B'));
       expect(papel, contains('João Silva'));
       expect(papel, contains('Pneu Aro 15'));
       expect(papel, contains('PIX'));
       expect(papel, contains('1.500,00'));
-      expect(papel, contains('SALE-L1-7F3A9C2B'));
+    });
+
+    test('manda o cliente ao caixa, em faixa invertida', () {
+      // RF12: a 1ª via não é comprovante de pagamento — é o papel que leva o
+      // cliente até ele.
+      final faixa = commands.whereType<PrintBanner>().single;
+
+      expect(faixa.text, 'LEVE AO CAIXA PARA PAGAMENTO');
     });
 
     test('imprime o código de barras da venda (RF09)', () {
@@ -36,8 +49,52 @@ void main() {
       expect(barcodes.single.data, 'SALE-L1-7F3A9C2B');
     });
 
-    test('avisa que não é comprovante de pagamento', () {
-      expect(papel.toLowerCase(), contains('não é comprovante'));
+    test('os dados da venda saem com o rótulo à esquerda e o valor à direita', () {
+      final linhas = papel.split('\n');
+
+      for (final rotulo in ['Venda', 'Data', 'Hora', 'Vendedor', 'Pagamento']) {
+        final linha = linhas.firstWhere((l) => l.startsWith(rotulo));
+        expect(linha, hasLength(paperColumns), reason: rotulo);
+      }
+      expect(linhas.firstWhere((l) => l.startsWith('Venda')), endsWith('SALE-L1-7F3A9C2B'));
+      expect(linhas.firstWhere((l) => l.startsWith('Vendedor')), endsWith('João Silva'));
+    });
+
+    test('o cliente só sai quando a venda tem cliente', () {
+      expect(papel, isNot(contains('Cliente')));
+
+      final json = Map<String, Object?>.from(documentJson())
+        ..['customer_name'] = 'Maria de Oliveira';
+      final comCliente = renderCommandsAsText(
+        layout.build(printedDocumentFromJson(json)),
+      );
+
+      expect(comCliente, contains('Maria de Oliveira'));
+    });
+
+    test('cada item traz quantidade, unitário e total', () {
+      final linhas = papel.split('\n');
+      final nome = linhas.indexWhere((l) => l.startsWith('Pneu Aro 15'));
+
+      // No JSON de referência o primeiro item tem quantidade 2.
+      expect(linhas[nome + 1], startsWith('  2 x 250,00'));
+      expect(linhas[nome + 1], endsWith('500,00'));
+      expect(linhas[nome + 1], hasLength(paperColumns));
+    });
+
+    test('o total a pagar é o destaque do papel', () {
+      final total = commands
+          .whereType<PrintText>()
+          .singleWhere((c) => c.value.startsWith('TOTAL A PAGAR'));
+
+      expect(total.value, endsWith(r'R$ 1.500,00'));
+      expect(total.bold, isTrue);
+      expect(total.doubleHeight, isTrue);
+    });
+
+    test('o pé diz que o papel é interno e não tem valor fiscal', () {
+      expect(papel, contains('Comprovante interno.'));
+      expect(papel, contains('Não possui valor fiscal.'));
     });
 
     test('nenhuma linha ultrapassa a largura da bobina de 2"', () {
@@ -56,19 +113,32 @@ void main() {
   });
 
   group('reimpressão', () {
-    test('a via de reimpressão sai marcada no papel (§3.4.3)', () {
+    test('a reimpressão sai marcada no papel (§3.4.3)', () {
       final document = printedDocumentFromJson(
         documentJson(reference: 'DOC1-L1-7F3A9C2B-R2', sequence: 2),
       );
       final papel = renderCommandsAsText(layout.build(document));
 
-      expect(papel, contains('REIMPRESSAO'));
-      expect(papel, contains('2a VIA'));
+      // "1ª VIA" e "2ª VIA" agora nomeiam os dois papéis do fluxo; a
+      // reimpressão tem marca própria, com o número dela.
+      expect(papel, contains('REIMPRESSÃO 2'));
+      expect(papel, contains('1ª VIA'));
+    });
+
+    test('o papel original não traz a marca', () {
+      final papel = renderCommandsAsText(
+        layout.build(printedDocumentFromJson(documentJson())),
+      );
+
+      expect(papel, isNot(contains('REIMPRESSÃO')));
     });
   });
 
-  group('documento 2 (RF12)', () {
-    test('acrescenta a confirmação do caixa', () {
+  group('2ª via — comprovante de retirada (RF12)', () {
+    late List<PrintCommand> commands;
+    late String papel;
+
+    setUp(() {
       final json = Map<String, Object?>.from(
         documentJson(reference: 'DOC2-L1-7F3A9C2B'),
       )
@@ -82,22 +152,76 @@ void main() {
           },
         ];
 
-      final papel = renderCommandsAsText(layout.build(printedDocumentFromJson(json)));
+      commands = layout.build(printedDocumentFromJson(json));
+      papel = renderCommandsAsText(commands);
+    });
 
-      expect(papel, contains('DOCUMENTO DE RETIRADA'));
-      expect(papel, contains('PAGAMENTO CONFIRMADO'));
-      expect(papel, contains('Maria Costa'));
+    test('traz o que o §8 da integração exige', () {
+      expect(commands.first, isA<PrintLogo>());
+      expect(papel, contains('COMPROVANTE DE RETIRADA'));
+      expect(papel, contains('2ª VIA'));
+      expect(papel, contains('SALE-L1-7F3A9C2B'));
+      expect(papel, contains('Emitido em'));
+      expect(papel, contains('João Silva'));
+      expect(papel, contains(r'R$ 1.500,00'));
+    });
+
+    test('diz em faixa grande que a mercadoria está liberada', () {
+      final faixa = commands.whereType<PrintBanner>().single;
+
+      expect(faixa.text, 'MERCADORIA LIBERADA');
+      expect(faixa.large, isTrue);
+    });
+
+    test('o número da venda sai em destaque', () {
+      final venda = commands
+          .whereType<PrintText>()
+          .firstWhere((c) => c.value == 'SALE-L1-7F3A9C2B');
+
+      expect(venda.bold, isTrue);
+      expect(venda.doubleHeight, isTrue);
+    });
+
+    test('traz a referência do documento, que a devolução pede (13.4)', () {
+      expect(papel, contains('DOC2-L1-7F3A9C2B'));
+    });
+
+    test('diz o que fazer com o papel', () {
+      expect(papel, contains('ENTREGUE ESTA VIA AO VENDEDOR'));
+      expect(papel, contains('PARA RETIRAR A MERCADORIA'));
+    });
+
+    test('é curta: não repete os itens nem a conta', () {
+      expect(papel, isNot(contains('Pneu Aro 15')));
+      expect(papel, isNot(contains('Subtotal')));
+
+      final conferencia = layout.build(printedDocumentFromJson(documentJson()));
+      expect(commands.length, lessThan(conferencia.length));
+    });
+
+    test('usa o logo pequeno', () {
+      expect(commands.whereType<PrintLogo>().single.size, LogoSize.small);
+    });
+
+    test('imprime o código de barras da venda', () {
+      expect(commands.whereType<PrintBarcode>().single.data, 'SALE-L1-7F3A9C2B');
+    });
+
+    test('nenhuma linha ultrapassa a largura da bobina de 2"', () {
+      for (final command in commands.whereType<PrintText>()) {
+        expect(command.value.length, lessThanOrEqualTo(paperColumns));
+      }
     });
   });
 
   group('desconto', () {
-    test('o sub-total sai sempre; o desconto, só quando existe', () {
-      // O modelo da nota trata o sub-total como linha fixa: uma nota que
-      // mostra só o total esconde a conta de quem confere no caixa.
+    test('o subtotal sai sempre; o desconto, só quando existe', () {
+      // Uma nota que mostra só o total esconde a conta de quem confere no
+      // caixa.
       final semDesconto = renderCommandsAsText(
         layout.build(printedDocumentFromJson(documentJson())),
       );
-      expect(semDesconto, contains('Sub-total'));
+      expect(semDesconto, contains('Subtotal'));
       expect(semDesconto, isNot(contains('Desconto')));
 
       final json = Map<String, Object?>.from(documentJson())
@@ -107,97 +231,24 @@ void main() {
       final comDesconto = renderCommandsAsText(
         layout.build(printedDocumentFromJson(json)),
       );
-      expect(comDesconto, contains('Sub-total'));
+      expect(comDesconto, contains('Subtotal'));
       expect(comDesconto, contains('Desconto'));
-      expect(comDesconto, contains('75,00'));
-    });
-
-    test('a linha do item traz o desconto entre colchetes, como no modelo', () {
-      final json = Map<String, Object?>.from(documentJson())
-        ..['discount_amount'] = '75.00'
-        ..['total_amount'] = '1425.00';
-
-      final papel = renderCommandsAsText(
-        layout.build(printedDocumentFromJson(json)),
-      );
-
-      expect(papel, contains('[Desconto]'));
-      expect(papel, contains('-75,00'));
+      expect(comDesconto, contains('-75,00'));
     });
   });
 
-  group('o papel segue o modelo da nota', () {
-    late List<PrintCommand> commands;
-    late String papel;
+  group('nome que não cabe', () {
+    test('nome longo de vendedor é cortado, e a linha não estoura', () {
+      final json = Map<String, Object?>.from(documentJson())
+        ..['seller_name'] = 'Francisco das Chagas Albuquerque Cavalcanti';
 
-    setUp(() {
-      final document = printedDocumentFromJson(documentJson());
-      commands = layout.build(document);
-      papel = renderCommandsAsText(commands);
-    });
+      final commands = layout.build(printedDocumentFromJson(json));
+      final vendedor = commands
+          .whereType<PrintText>()
+          .firstWhere((c) => c.value.startsWith('Vendedor'));
 
-    test('os rótulos saem no formato do modelo', () {
-      expect(papel, contains('Vendedor:João Silva'));
-      expect(papel, contains('VENDA:#10482'));
-      expect(papel, contains('REF:DOC1-L1-7F3A9C2B'));
-      expect(papel, contains('Data:'));
-      expect(papel, contains('Hora:'));
-    });
-
-    test('sem cliente, o papel diz isso em vez de omitir a linha', () {
-      expect(papel, contains('Cliente:nao informado'));
-    });
-
-    test('os itens saem em três colunas, alinhadas com o cabeçalho', () {
-      final linhas = papel.split('\n');
-      final cabecalho = linhas.firstWhere((l) => l.startsWith('ITEM'));
-      final item = linhas.firstWhere((l) => l.startsWith('Pneu Aro 15'));
-
-      // A coluna do valor termina na mesma coluna nas duas linhas: é o que faz
-      // o papel ler como tabela, e não como texto desalinhado.
-      expect(cabecalho.trimRight().length, item.trimRight().length);
-      expect(cabecalho, endsWith('VALOR'));
-      expect(item, endsWith('500,00'));
-    });
-
-    test('o preço unitário só aparece quando a quantidade não é 1', () {
-      // No JSON de referência o primeiro item tem quantidade 2.
-      expect(papel, contains('2 x 250,00'));
-
-      final json = Map<String, Object?>.from(documentJson());
-      final itens = List<Map<String, Object?>>.from(
-        (json['items']! as List<Object?>).cast<Map<String, Object?>>(),
-      );
-      itens[0] = Map<String, Object?>.from(itens[0])
-        ..['quantity'] = '1.000'
-        ..['line_total'] = '250.00';
-      json['items'] = [itens[0]];
-
-      final umaUnidade = renderCommandsAsText(
-        layout.build(printedDocumentFromJson(json)),
-      );
-      // Com uma unidade, o unitário é o próprio total — repetir é ruído.
-      expect(umaUnidade, isNot(contains('x 250,00')));
-    });
-
-    test('a forma de pagamento fecha o bloco do total', () {
-      final linhas = papel.split('\n');
-      final total = linhas.indexWhere((l) => l.startsWith('Total'));
-      final pagamento = linhas.indexWhere((l) => l.startsWith('PIX'));
-
-      expect(total, isNonNegative);
-      expect(pagamento, total + 1);
-    });
-
-    test('imprime o QR do código da venda, além do código de barras', () {
-      final qrs = commands.whereType<PrintQrCode>().toList();
-
-      expect(qrs, hasLength(1));
-      expect(qrs.single.data, 'SALE-L1-7F3A9C2B');
-    });
-
-    test('agradece no pé, como no modelo', () {
-      expect(papel, contains('OBRIGADO! VOLTE SEMPRE!'));
+      expect(vendedor.value, hasLength(paperColumns));
+      expect(vendedor.value, contains('Francisco das Chagas'));
     });
   });
 
