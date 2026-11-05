@@ -65,13 +65,13 @@ void main() {
       expect(draft.canBeFinished, isTrue);
     });
 
-    test('desconto acima de 5% é recusado antes de ir à rede (13.3)', () {
+    test('desconto acima de 7% é recusado antes de ir à rede (13.3)', () {
       final draft = SaleDraft()
         ..add(_product())
-        ..discountPercentHundredths = 501;
+        ..discountPercentHundredths = 701;
 
       expect(draft.canBeFinished, isFalse);
-      expect(draft.problems.any((p) => p.message.contains('5%')), isTrue);
+      expect(draft.problems.any((p) => p.message.contains('7%')), isTrue);
     });
 
     test('venda comum não exige cliente', () {

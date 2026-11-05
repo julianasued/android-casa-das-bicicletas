@@ -1,6 +1,6 @@
 /// Forma de pagamento e desconto na tela de venda (§9 e §10 do fluxo).
 ///
-/// O teto de 5% é recusa deste aplicativo (13.3) e trava a venda. Crédito com
+/// O teto de 7% é recusa deste aplicativo (13.3) e trava a venda. Crédito com
 /// desconto é outra coisa: o backend aceita registrar e recusa só no caixa, e
 /// por isso aqui é aviso — o botão de finalizar continua ativo.
 library;
@@ -100,7 +100,7 @@ void main() {
   });
 
   group('desconto (§10)', () {
-    testWidgets('acima de 5% o diálogo avisa e não deixa aplicar',
+    testWidgets('acima de 7% o diálogo avisa e não deixa aplicar',
         (tester) async {
       await montarVenda(tester);
       await tocar(tester, find.byIcon(Icons.percent));
@@ -108,10 +108,10 @@ void main() {
       for (final digito in '800'.split('')) {
         await tocar(tester, teclaDoDialogo(digito));
       }
-      await tester.ensureVisible(find.text('O desconto máximo é de 5%.'));
+      await tester.ensureVisible(find.text('O desconto máximo é de 7%.'));
       await tester.pumpAndSettle();
 
-      expect(find.text('O desconto máximo é de 5%.'), findsOneWidget);
+      expect(find.text('O desconto máximo é de 7%.'), findsOneWidget);
       final aplicar = tester.widget<FilledButton>(
         find.ancestor(
           of: find.text('APLICAR DESCONTO'),

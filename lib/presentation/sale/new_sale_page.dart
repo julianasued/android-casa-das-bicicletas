@@ -1307,7 +1307,7 @@ class _DiscountDialog extends StatefulWidget {
 /// A referência oferece "DESCONTO RÁPIDO" de 5, 10, 15 e 20% e um campo de
 /// valor em reais. Nenhum dos dois cabe aqui sem quebrar regra existente:
 ///
-/// - o teto é 5% (13.3), e 10, 15 ou 20 produziriam uma venda que o servidor
+/// - o teto é 7% (13.3), e 10, 15 ou 20 produziriam uma venda que o servidor
 ///   recusa no envio — o vendedor descobriria só ao finalizar;
 /// - `SaleCreateSerializer` aceita `discount_percent`, e não valor.
 ///
@@ -1360,7 +1360,7 @@ class _DiscountDialogState extends State<_DiscountDialog> {
   /// Percentual equivalente, só para mostrar ao lado do valor.
   int get _hundredths => _descontoNegociado.percentOn(widget.subtotal);
 
-  /// Teto de 5% medido na unidade negociada — o mesmo centavo que o backend
+  /// Teto de 7% medido na unidade negociada — o mesmo centavo que o backend
   /// confere, e não um percentual arredondado no meio do caminho.
   bool get _acimaDoTeto => _descontoNegociado.exceedsCapOn(widget.subtotal);
 
@@ -1864,7 +1864,7 @@ class _MostradorDoDesconto extends StatelessWidget {
         if (acimaDoTeto) ...[
           const SizedBox(height: 8),
           Text(
-            'O desconto máximo é de 5%.',
+            'O desconto máximo é de 7%.',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,

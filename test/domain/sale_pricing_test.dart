@@ -77,7 +77,7 @@ void main() {
     test(r'desconto de 5% sobre R$ 1.500,00 é R$ 75,00', () {
       final totals = computeTotals(
         lineGrosses: const [Money.fromCents(150000)],
-        discountPercentHundredths: maxDiscountPercentHundredths,
+        discountPercentHundredths: 500,
       );
 
       expect(totals.discount.toApiString(), '75.00');
@@ -97,7 +97,7 @@ void main() {
           gross: const Money.fromCents(100000),
           amount: const Money.fromCents(5000),
         ),
-        maxDiscountPercentHundredths,
+        500,
       );
     });
 
@@ -122,14 +122,14 @@ void main() {
     });
 
     test('valor acima do teto devolve percentual acima do teto', () {
-      // R$ 6,00 em R$ 100,00 são 6%: quem chama recusa pelo mesmo teto de
+      // R$ 8,00 em R$ 100,00 são 8%: quem chama recusa pelo mesmo teto de
       // sempre, sem precisar de regra nova para o modo em reais.
       final percentual = discountPercentFromAmount(
         gross: const Money.fromCents(10000),
-        amount: const Money.fromCents(600),
+        amount: const Money.fromCents(800),
       );
 
-      expect(percentual, 600);
+      expect(percentual, 800);
       expect(percentual, greaterThan(maxDiscountPercentHundredths));
     });
 
@@ -190,38 +190,38 @@ void main() {
     test('em percentual, o valor acompanha o bruto', () {
       const desconto = SaleDiscount.percent(maxDiscountPercentHundredths);
 
-      // 5% de R$ 1.387,93 são R$ 69,3965, fechados em R$ 69,40.
-      expect(desconto.amountOn(bruto).cents, 6940);
-      expect(desconto.percentOn(bruto), 500);
+      // 7% de R$ 1.387,93 são R$ 97,1551, fechados em R$ 97,16.
+      expect(desconto.amountOn(bruto).cents, 9716);
+      expect(desconto.percentOn(bruto), 700);
     });
 
-    test('o teto em reais é o mesmo 5%, conferido no centavo', () {
+    test('o teto em reais é o mesmo 7%, conferido no centavo', () {
       expect(
-        const SaleDiscount.amount(Money.fromCents(6900)).exceedsCapOn(bruto),
+        const SaleDiscount.amount(Money.fromCents(9700)).exceedsCapOn(bruto),
         isFalse,
       );
       expect(
-        const SaleDiscount.amount(Money.fromCents(6940)).exceedsCapOn(bruto),
+        const SaleDiscount.amount(Money.fromCents(9716)).exceedsCapOn(bruto),
         isFalse,
       );
       expect(
-        const SaleDiscount.amount(Money.fromCents(6941)).exceedsCapOn(bruto),
+        const SaleDiscount.amount(Money.fromCents(9717)).exceedsCapOn(bruto),
         isTrue,
       );
     });
 
     test('o teto não é medido pelo percentual arredondado', () {
-      // R$ 69,41 convertido dá 5,00%, que passaria pelo teto percentual. O
+      // R$ 97,17 convertido dá 7,00%, que passaria pelo teto percentual. O
       // valor é que precisa ser conferido, e ele está um centavo acima.
-      const acima = SaleDiscount.amount(Money.fromCents(6941));
+      const acima = SaleDiscount.amount(Money.fromCents(9717));
 
       expect(acima.percentOn(bruto), maxDiscountPercentHundredths);
       expect(acima.exceedsCapOn(bruto), isTrue);
     });
 
     test('em percentual o teto continua sendo o percentual', () {
-      expect(const SaleDiscount.percent(500).exceedsCapOn(bruto), isFalse);
-      expect(const SaleDiscount.percent(501).exceedsCapOn(bruto), isTrue);
+      expect(const SaleDiscount.percent(700).exceedsCapOn(bruto), isFalse);
+      expect(const SaleDiscount.percent(701).exceedsCapOn(bruto), isTrue);
     });
 
     test('sem desconto não desconta nada', () {
