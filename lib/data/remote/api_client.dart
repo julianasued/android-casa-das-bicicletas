@@ -49,6 +49,46 @@ class ApiClient {
   final SessionManager _session;
   final HttpTransport _transport;
 
+  /// Modo offline ligado: nenhuma chamada sai, e todas respondem na hora como
+  /// falha de rede — que é o que leva cada repositório ao caminho do aparelho.
+  /// Registrado na montagem do grafo; ausente, o cliente sempre tenta a rede.
+  bool Function()? forcedOffline;
+
+  /// Avisado quando uma chamada falha por rede ou estoura o tempo: é o que liga
+  /// o modo offline automático.
+  void Function()? onNetworkFailure;
+
+  /// Texto da falha devolvida sem ir à rede, no modo offline.
+  static const String offlineModeMessage =
+      'Modo offline: esta operação precisa de conexão com o servidor.';
+
+  /// O servidor responde? Usado para sair do modo offline automático.
+  ///
+  /// Ignora o modo offline (é justamente a pergunta de quando sair dele) e usa
+  /// um tempo curto: quem pergunta não pode ficar 20 segundos esperando.
+  Future<bool> isServerReachable({
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final Uri url;
+    try {
+      url = Uri.parse('$baseUrl${ApiEndpoints.health}');
+    } on FormatException {
+      return false;
+    }
+    try {
+      final response = await _transport
+          .send(HttpRequest(
+            method: 'GET',
+            url: url,
+            headers: const {'Accept': 'application/json'},
+          ))
+          .timeout(timeout);
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } on Object {
+      return false;
+    }
+  }
+
   /// URL efetiva: a configurada no terminal tem precedência sobre a compilada.
   String get baseUrl {
     final override = _session.baseUrlOverride;
@@ -171,6 +211,10 @@ class ApiClient {
       );
     }
 
+    if (forcedOffline?.call() ?? false) {
+      return const Err(NetworkFailure(offlineModeMessage));
+    }
+
     // Sessão aberta sem internet não tem token: antes de falar com o servidor,
     // tenta trocá-la por uma de verdade. A própria troca é a rota de seleção,
     // que não pode esperar por si mesma.
@@ -189,10 +233,12 @@ class ApiClient {
           .timeout(_environment.requestTimeout);
       return _interpret(response);
     } on TimeoutException {
+      onNetworkFailure?.call();
       return const Err(
         NetworkFailure('O servidor demorou a responder. A operação não foi concluída.'),
       );
     } on SocketException {
+      onNetworkFailure?.call();
       return const Err(NetworkFailure());
     } on HandshakeException {
       return const Err(

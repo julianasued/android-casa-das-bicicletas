@@ -31,6 +31,9 @@ class _BootstrapPageState extends State<BootstrapPage> {
 
     await deps.session.restore();
     await deps.connectivity.start();
+    // Depois da conectividade: o modo automático nasce do que ela diz, e o
+    // manual volta como o vendedor deixou.
+    await deps.offlineMode?.start();
 
     // Depois do `start`, para o agendador já nascer sabendo se há rede. O
     // terminal pode ter sido reiniciado depois de um dia inteiro sem conexão, e

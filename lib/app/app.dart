@@ -14,6 +14,7 @@ import '../presentation/sale/sale_finished_page.dart';
 import '../presentation/scanner/scanner_page.dart';
 import '../presentation/seller/seller_selection_page.dart';
 import '../presentation/setup/setup_page.dart';
+import '../presentation/shared/modo_offline.dart';
 import '../presentation/sync/fila_de_sincronizacao_page.dart';
 import '../presentation/welcome/welcome_page.dart';
 import 'dependencies.dart';
@@ -35,6 +36,9 @@ class CasaDasBicicletasApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         initialRoute: AppRoutes.bootstrap,
         onGenerateRoute: _onGenerateRoute,
+        // A faixa do modo offline fica acima de todas as telas.
+        builder: (context, child) =>
+            FaixaDoModoOffline(child: child ?? const SizedBox.shrink()),
       ),
     );
   }

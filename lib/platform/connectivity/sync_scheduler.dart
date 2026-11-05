@@ -29,6 +29,7 @@ import '../../domain/entities/sync_outcome.dart';
 import '../../domain/usecases/pull_reference_data.dart';
 import '../../domain/usecases/sync_pending_operations.dart';
 import 'connectivity_channel.dart';
+import 'offline_mode.dart';
 
 class SyncScheduler {
   SyncScheduler({
@@ -36,10 +37,19 @@ class SyncScheduler {
     required SyncPendingOperations sync,
     PullReferenceData? pull,
     Duration retryInterval = const Duration(minutes: 5),
+    OfflineMode? offlineMode,
   })  : _connectivity = connectivity,
         _sync = sync,
         _pull = pull,
-        _retryInterval = retryInterval;
+        _retryInterval = retryInterval,
+        _offlineMode = offlineMode;
+
+  /// Com o modo offline ligado não se envia nada; ao desligar, envia na hora.
+  final OfflineMode? _offlineMode;
+  bool _estavaOffline = false;
+
+  bool get _online =>
+      _connectivity.isOnline && !(_offlineMode?.isOffline ?? false);
 
   final ConnectivityChannel _connectivity;
   final SyncPendingOperations _sync;
@@ -67,11 +77,20 @@ class SyncScheduler {
 
     _wasOnline = _connectivity.isOnline;
     _connectivity.addListener(_onConnectivityChanged);
+    _estavaOffline = _offlineMode?.isOffline ?? false;
+    _offlineMode?.addListener(_aoMudarOModoOffline);
     _timer = Timer.periodic(_retryInterval, (_) => _syncIfOnline());
 
     // Subir o aplicativo com fila pendente é caso comum: o terminal foi
     // reiniciado depois de um dia sem rede.
     _syncIfOnline();
+  }
+
+  void _aoMudarOModoOffline() {
+    final agora = _offlineMode?.isOffline ?? false;
+    final saiu = _estavaOffline && !agora;
+    _estavaOffline = agora;
+    if (saiu) _syncIfOnline();
   }
 
   void _onConnectivityChanged() {
@@ -83,7 +102,7 @@ class SyncScheduler {
   }
 
   Future<void> _syncIfOnline() async {
-    if (!_connectivity.isOnline || _sync.isRunning) return;
+    if (!_online || _sync.isRunning) return;
 
     final resultado = await _sync();
     if (resultado case Ok(:final value)) {
@@ -100,7 +119,7 @@ class SyncScheduler {
   /// vender. Quem avisa que ele está velho é a tela de venda.
   Future<void> _atualizarReferencia() async {
     final pull = _pull;
-    if (pull == null || !_connectivity.isOnline) return;
+    if (pull == null || !_online) return;
 
     final resultado = await pull();
     if (resultado case Ok(:final value)) {
@@ -128,6 +147,7 @@ class SyncScheduler {
     _timer?.cancel();
     _timer = null;
     _connectivity.removeListener(_onConnectivityChanged);
+    _offlineMode?.removeListener(_aoMudarOModoOffline);
     lastReport.dispose();
     lastPull.dispose();
     _started = false;

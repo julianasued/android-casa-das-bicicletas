@@ -44,6 +44,7 @@ import '../domain/usecases/receive_offline_payment.dart';
 import '../domain/usecases/reprint_document.dart';
 import '../domain/usecases/select_seller.dart';
 import '../platform/connectivity/connectivity_channel.dart';
+import '../platform/connectivity/offline_mode.dart';
 import '../platform/device/device_channel.dart';
 import '../platform/display/customer_display_channel.dart';
 import '../platform/printer/printer_channel.dart';
@@ -98,6 +99,7 @@ class AppDependencies {
     this.syncQueue,
     this.referenceCache,
     this.syncScheduler,
+    this.offlineMode,
     bool receiveAtTerminalWhenOffline = false,
   })  : openTerminal = OpenTerminal(auth),
         receiveOfflinePayment = syncQueue == null || !receiveAtTerminalWhenOffline
@@ -139,6 +141,10 @@ class AppDependencies {
   /// testes que não precisam de sincronização.
   final SyncScheduler? syncScheduler;
 
+  /// Modo offline: com ele ligado, nada vai ao servidor (ver `OfflineMode`).
+  /// Ausente nos testes que não tratam disso — aí o app sempre tenta a rede.
+  final OfflineMode? offlineMode;
+
   /// Grafo real do terminal: canais nativos e HTTP de verdade.
   factory AppDependencies.production({AppEnvironment? environment}) {
     final env = environment ?? AppEnvironment.fromDefines();
@@ -162,6 +168,14 @@ class AppDependencies {
     final fila = OperationQueue(banco);
     final connectivity = ConnectivityChannel();
 
+    // Ligado, nada sai para a rede: cada ação vai direto ao aparelho, na hora,
+    // em vez de esperar o tempo-limite de uma internet que caiu.
+    final modoOffline = OfflineMode(connectivity: connectivity, store: secureStore);
+    api
+      ..forcedOffline = (() => modoOffline.isOffline)
+      ..onNetworkFailure = modoOffline.reportNetworkFailure;
+    modoOffline.probe = api.isServerReachable;
+
     // A fila enche sozinha, mas não esvazia sozinha: este é o gatilho.
     final sincronizacao = SyncRepositoryImpl(api);
     final scheduler = SyncScheduler(
@@ -174,6 +188,7 @@ class AppDependencies {
       // busca online filtra ativos e nunca traria de volta um produto
       // desativado no servidor (RF34).
       pull: PullReferenceData(sync: sincronizacao, cache: cache),
+      offlineMode: modoOffline,
     );
 
     // A senha conferida no aparelho quando não há internet, e a troca dessa
@@ -206,6 +221,7 @@ class AppDependencies {
       referenceCache: cache,
       syncScheduler: scheduler,
       receiveAtTerminalWhenOffline: true,
+      offlineMode: modoOffline,
     );
   }
 
@@ -241,6 +257,7 @@ class AppDependencies {
 
   void dispose() {
     transport.close();
+    offlineMode?.dispose();
     connectivity.dispose();
     session.dispose();
   }

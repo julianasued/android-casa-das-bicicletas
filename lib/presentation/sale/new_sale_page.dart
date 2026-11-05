@@ -28,6 +28,7 @@ import '../../domain/rules/sale_pricing.dart';
 import '../../domain/usecases/create_sale.dart';
 import '../../platform/connectivity/connectivity_channel.dart';
 import 'offline_payment_page.dart';
+import '../shared/modo_offline.dart';
 import '../shared/brand.dart';
 import '../shared/feedback.dart';
 import 'customer_picker_page.dart';
@@ -229,6 +230,9 @@ class _NewSalePageState extends State<NewSalePage> {
                 subtitle: const Text('Mantém o terminal aberto'),
                 onTap: () => Navigator.of(context).pop('vendedor'),
               ),
+              ItemDoModoOffline(
+                onTap: () => Navigator.of(context).pop('modo-offline'),
+              ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.search),
@@ -275,6 +279,10 @@ class _NewSalePageState extends State<NewSalePage> {
     }
     if (destino == 'descartar') {
       await _confirmDiscard();
+      return;
+    }
+    if (destino == 'modo-offline') {
+      await alternarModoOffline(context);
       return;
     }
     if (destino == 'catalogo') {

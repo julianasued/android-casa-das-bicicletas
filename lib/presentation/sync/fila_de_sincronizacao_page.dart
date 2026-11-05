@@ -26,6 +26,7 @@ import '../../app/dependencies.dart';
 import '../../core/formatters.dart';
 import '../../core/result.dart';
 import '../../domain/entities/pending_operation.dart';
+import '../shared/modo_offline.dart';
 import '../shared/feedback.dart';
 
 class FilaDeSincronizacaoPage extends StatefulWidget {
@@ -113,14 +114,27 @@ class _FilaDeSincronizacaoPageState extends State<FilaDeSincronizacaoPage> {
         ],
       ),
       body: ListenableBuilder(
-        listenable: deps.connectivity,
+        listenable: Listenable.merge([
+          deps.connectivity,
+          if (deps.offlineMode case final modo?) modo,
+        ]),
         builder: (context, _) {
-          final online = deps.connectivity.isOnline;
+          final modoOffline = deps.offlineMode?.isOffline ?? false;
+          final online = deps.connectivity.isOnline && !modoOffline;
           final resumo = _resumo;
 
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              if (deps.offlineMode != null) ...[
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ItemDoModoOffline(
+                    onTap: () => alternarModoOffline(context),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               if (deps.syncQueue == null)
                 const _Aviso(
                   texto: 'Este terminal não tem fila local configurada.',
@@ -136,11 +150,13 @@ class _FilaDeSincronizacaoPageState extends State<FilaDeSincronizacaoPage> {
                   label: Text(_enviando ? 'ENVIANDO…' : 'SINCRONIZAR AGORA'),
                 ),
                 if (!online)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      'Sem rede agora. A fila sobe sozinha quando a conexão voltar.',
-                      style: TextStyle(fontSize: 13),
+                      (deps.offlineMode?.isManual ?? false)
+                          ? 'Modo offline ligado. A fila sobe quando você voltar ao online.'
+                          : 'Sem rede agora. A fila sobe sozinha quando a conexão voltar.',
+                      style: const TextStyle(fontSize: 13),
                     ),
                   ),
                 const SizedBox(height: 24),
