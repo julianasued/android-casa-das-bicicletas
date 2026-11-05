@@ -26,6 +26,7 @@ import '../data/repositories/auth_repository_impl.dart';
 import '../data/repositories/catalog_repository_impl.dart';
 import '../data/repositories/customer_repository_impl.dart';
 import '../data/repositories/sale_repository_impl.dart';
+import '../data/session/offline_pin_store.dart';
 import '../data/session/secure_store.dart';
 import '../data/session/session_manager.dart';
 import '../domain/ports/barcode_scanner.dart';
@@ -164,13 +165,23 @@ class AppDependencies {
       pull: PullReferenceData(sync: sincronizacao, cache: cache),
     );
 
+    // A senha conferida no aparelho quando não há internet, e a troca dessa
+    // sessão por uma do servidor quando a rede volta.
+    final auth = AuthRepositoryImpl(
+      api: api,
+      session: session,
+      cache: cache,
+      offlinePins: OfflinePinStore(secureStore),
+    );
+    session.renewer = auth.renewOfflineSession;
+
     return AppDependencies(
       environment: env,
       secureStore: secureStore,
       session: session,
       transport: transport,
       apiClient: api,
-      auth: AuthRepositoryImpl(api: api, session: session, cache: cache),
+      auth: auth,
       catalog: CatalogRepositoryImpl(api, cache: cache),
       customers: CustomerRepositoryImpl(api, cache: cache),
       sales: SaleRepositoryImpl(api, cache: cache),

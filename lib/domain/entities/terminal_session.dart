@@ -28,10 +28,17 @@ class SellerSession {
     required this.storeId,
     required this.terminalId,
     required this.expiresAt,
+    this.offline = false,
   });
 
   final String sessionToken;
   final Seller seller;
+
+  /// Aberta sem internet, com a senha conferida no aparelho.
+  ///
+  /// Não tem token do servidor ([sessionToken] vazio): vende para a fila, e é
+  /// trocada por uma sessão de verdade assim que a rede volta.
+  final bool offline;
   final int storeId;
   final int terminalId;
   final DateTime expiresAt;

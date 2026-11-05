@@ -63,7 +63,7 @@ class SessionManager extends ChangeNotifier {
   /// vendedor, e é a única que o backend aceita para criar venda (§3.4.1). O
   /// token do terminal só responde pelas duas rotas de seleção (§2.2, §2.3).
   String? get bearerToken {
-    if (hasSellerSession) return _session!.sessionToken;
+    if (hasSellerSession && !_session!.offline) return _session!.sessionToken;
     if (hasTerminalAuth) return _terminal!.terminalToken;
     return null;
   }
@@ -123,8 +123,57 @@ class SessionManager extends ChangeNotifier {
 
   Future<void> saveSession(SellerSession session) async {
     _session = session;
-    await _store.write(_Keys.session, jsonEncode(_encodeSession(session)));
+    if (session.offline) {
+      // A sessão offline fica só na memória: reabrir o aplicativo pede a senha
+      // de novo, e é essa senha que renova a sessão quando a rede voltar. Apaga
+      // a gravada para uma sessão antiga, de outro vendedor, não voltar.
+      await _store.delete(_Keys.session);
+    } else {
+      await _store.write(_Keys.session, jsonEncode(_encodeSession(session)));
+    }
     notifyListeners();
+  }
+
+  // -------------------------------------------------------------------------
+  // Renovação da sessão aberta sem internet
+  // -------------------------------------------------------------------------
+
+  /// Troca a sessão offline por uma do servidor. Registrado na montagem do
+  /// grafo (o repositório de autenticação depende do cliente HTTP, que depende
+  /// desta classe — aqui fica só o gancho).
+  Future<void> Function()? renewer;
+
+  Future<void>? _renovando;
+  DateTime? _ultimaFalhaDeRenovacao;
+
+  /// Há sessão offline esperando o servidor?
+  bool get needsRenewal =>
+      renewer != null && hasSellerSession && _session!.offline;
+
+  /// Tenta renovar; chamadas simultâneas esperam a mesma tentativa.
+  ///
+  /// Depois de uma tentativa sem sucesso espera alguns segundos antes da
+  /// próxima: sem rede, cada requisição pagaria duas vezes o tempo da falha.
+  Future<void> renewIfNeeded() async {
+    if (!needsRenewal) return;
+    final falhou = _ultimaFalhaDeRenovacao;
+    if (falhou != null &&
+        DateTime.now().difference(falhou) < const Duration(seconds: 20)) {
+      return;
+    }
+
+    final emAndamento = _renovando;
+    if (emAndamento != null) return emAndamento;
+
+    final tentativa = renewer!();
+    _renovando = tentativa;
+    try {
+      await tentativa;
+    } finally {
+      _renovando = null;
+      _ultimaFalhaDeRenovacao =
+          (_session?.offline ?? false) ? DateTime.now() : null;
+    }
   }
 
   /// Troca de vendedor: encerra a sessão e mantém o terminal aberto.

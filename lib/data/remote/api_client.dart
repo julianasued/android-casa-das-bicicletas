@@ -171,6 +171,11 @@ class ApiClient {
       );
     }
 
+    // Sessão aberta sem internet não tem token: antes de falar com o servidor,
+    // tenta trocá-la por uma de verdade. A própria troca é a rota de seleção,
+    // que não pode esperar por si mesma.
+    if (path != ApiEndpoints.selectSeller) await _session.renewIfNeeded();
+
     final headers = _headers(
       method: method,
       idempotencyKey: idempotencyKey,
