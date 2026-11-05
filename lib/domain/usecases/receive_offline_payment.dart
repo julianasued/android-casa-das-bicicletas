@@ -16,6 +16,7 @@
 library;
 
 import '../../core/failure.dart';
+import '../../core/money.dart';
 import '../../core/result.dart';
 import '../../core/uuid.dart';
 import '../entities/payment_method.dart';
@@ -46,6 +47,51 @@ class OfflinePaymentReceived {
   bool get printed => printFailure == null;
 }
 
+/// Uma parte do pagamento: forma e valor.
+class OfflinePaymentPart {
+  const OfflinePaymentPart(this.method, this.amount);
+
+  final PaymentMethod method;
+  final Money amount;
+}
+
+/// No máximo duas formas por venda — a mesma regra do caixa (13.7).
+const int maxPaymentParts = 2;
+
+/// Confere os recebimentos com as regras que o servidor vai aplicar
+/// (`cash_services.confirm`). Devolve a mensagem do problema, ou `null`.
+///
+/// Conferir aqui, e não só lá, é o que evita a venda "dar certo" no balcão e
+/// ser recusada na sincronização, com o cliente já longe.
+String? offlinePaymentProblem(Sale sale, List<OfflinePaymentPart> parts) {
+  if (sale.paymentMethod == PaymentMethod.notinha) {
+    return parts.isEmpty
+        ? null
+        : 'Venda em notinha não recebe pagamento: o valor fica na conta do cliente.';
+  }
+  if (parts.isEmpty) return 'Informe a forma de pagamento.';
+  if (parts.length > maxPaymentParts) {
+    return 'A venda aceita no máximo $maxPaymentParts formas de pagamento.';
+  }
+  if (parts.any((p) => p.method == PaymentMethod.notinha)) {
+    return 'Notinha não entra na divisão do pagamento.';
+  }
+  if (parts.length == 2 && parts[0].method == parts[1].method) {
+    return 'Escolha duas formas diferentes para dividir.';
+  }
+  if (parts.any((p) => !p.amount.isPositive)) {
+    return 'Cada forma precisa de um valor maior que zero.';
+  }
+  final soma = parts.fold(const Money.fromCents(0), (t, p) => t + p.amount);
+  if (soma.cents != sale.totalAmount.cents) {
+    return 'A soma das formas tem de fechar com o total da venda.';
+  }
+  if (sale.hasDiscount && parts.any((p) => p.method == PaymentMethod.credito)) {
+    return 'Venda com desconto não pode ser recebida no crédito.';
+  }
+  return null;
+}
+
 /// Texto do rodapé do comprovante emitido sem internet.
 const String offlineReceiptNotice =
     'Comprovante de retirada. Pagamento recebido no PDV sem conexao: o numero '
@@ -70,12 +116,17 @@ class ReceiveOfflinePayment {
   /// Registra o recebimento de [sale], cujo documento 1 provisório é
   /// [document1], e imprime o comprovante.
   ///
+  /// [payments] são as formas e valores recebidos — uma ou duas, podendo ser
+  /// outra forma que não a escolhida na montagem da venda. Vazio na notinha;
+  /// omitido, vale a forma da venda pelo total.
+  ///
   /// [receiverName] é quem recebeu — o vendedor da sessão — e vai impresso no
   /// lugar do nome do caixa.
   Future<Result<OfflinePaymentReceived>> call({
     required Sale sale,
     required PrintedDocument document1,
     required String receiverName,
+    List<OfflinePaymentPart>? payments,
   }) async {
     if (sale.status != SaleStatus.aguardandoCaixa || !sale.createdOffline) {
       return const Err(
@@ -84,6 +135,10 @@ class ReceiveOfflinePayment {
     }
 
     final notinha = sale.paymentMethod == PaymentMethod.notinha;
+    final partes = payments ??
+        [if (!notinha) OfflinePaymentPart(sale.paymentMethod, sale.totalAmount)];
+    final problema = offlinePaymentProblem(sale, partes);
+    if (problema != null) return Err(BusinessRuleFailure(problema));
     final agora = _clock();
     // Depois da venda, sempre — ver o cabeçalho.
     final minimo = sale.occurredAt.add(const Duration(milliseconds: 1));
@@ -99,10 +154,10 @@ class ReceiveOfflinePayment {
           // Notinha não é recebida (RF14): o servidor confirma a entrega e cria
           // a pendência do cliente.
           'payments': [
-            if (!notinha)
+            for (final parte in partes)
               {
-                'payment_method': sale.paymentMethod.code,
-                'amount': sale.totalAmount.toApiString(),
+                'payment_method': parte.method.code,
+                'amount': parte.amount.toApiString(),
               },
           ],
         },
@@ -111,7 +166,7 @@ class ReceiveOfflinePayment {
       ),
     );
 
-    final confirmada = _confirmada(sale, notinha: notinha);
+    final confirmada = _confirmada(sale, partes, notinha: notinha);
     final comprovante = PrintedDocument(
       type: DocumentType.doc2,
       reference: document1.reference,
@@ -126,7 +181,9 @@ class ReceiveOfflinePayment {
       saleId: document1.saleId,
       saleBarcode: document1.saleBarcode,
       saleOccurredAt: document1.saleOccurredAt,
-      paymentMethodLabel: document1.paymentMethodLabel,
+      paymentMethodLabel: notinha
+          ? document1.paymentMethodLabel
+          : partes.map((p) => p.method.label).join(' + '),
       sellerName: document1.sellerName,
       terminalName: document1.terminalName,
       customerName: document1.customerName,
@@ -138,10 +195,10 @@ class ReceiveOfflinePayment {
       confirmedAt: quando,
       cashierName: receiverName,
       payments: [
-        if (!notinha)
+        for (final parte in partes)
           DocumentPayment(
-            paymentMethodLabel: sale.paymentMethod.label,
-            amount: sale.totalAmount,
+            paymentMethodLabel: parte.method.label,
+            amount: parte.amount,
             occurredAt: quando,
           ),
       ],
@@ -159,15 +216,21 @@ class ReceiveOfflinePayment {
     );
   }
 
-  /// A venda no estado em que o servidor vai deixá-la (`cash_services.confirm`).
-  Sale _confirmada(Sale sale, {required bool notinha}) => Sale(
+  /// A venda no estado em que o servidor vai deixá-la (`cash_services.confirm`):
+  /// a forma da venda passa a ser a de maior valor, como lá.
+  Sale _confirmada(
+    Sale sale,
+    List<OfflinePaymentPart> partes, {
+    required bool notinha,
+  }) =>
+      Sale(
         id: sale.id,
         uuid: sale.uuid,
         storeId: sale.storeId,
         sellerId: sale.sellerId,
         sellerName: sale.sellerName,
         status: notinha ? SaleStatus.pendenteNotinha : SaleStatus.paga,
-        paymentMethod: sale.paymentMethod,
+        paymentMethod: notinha ? sale.paymentMethod : _maior(partes).method,
         barcode: sale.barcode,
         grossAmount: sale.grossAmount,
         discountAmount: sale.discountAmount,
@@ -179,4 +242,8 @@ class ReceiveOfflinePayment {
         customerName: sale.customerName,
         createdOffline: true,
       );
+
+  /// A de maior valor; no empate, a primeira — o `max` do Python faz igual.
+  static OfflinePaymentPart _maior(List<OfflinePaymentPart> partes) =>
+      partes.reduce((a, b) => b.amount.cents > a.amount.cents ? b : a);
 }

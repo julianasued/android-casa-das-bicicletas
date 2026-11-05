@@ -216,4 +216,109 @@ void main() {
     expect(r, isA<Err<OfflinePaymentReceived>>());
     expect(fila.enfileiradas, hasLength(1));
   });
+
+  group('troca de forma e divisão', () {
+    test('recebe em duas formas; a da venda passa a ser a de maior valor',
+        () async {
+      final venda = await venderSemRede(PaymentMethod.pix);
+
+      final r = await receber()(
+        sale: venda.result.sale,
+        document1: venda.result.document!,
+        receiverName: 'João Silva',
+        payments: const [
+          OfflinePaymentPart(PaymentMethod.pix, Money.fromCents(10000)),
+          OfflinePaymentPart(PaymentMethod.dinheiro, Money.fromCents(15000)),
+        ],
+      );
+      final recebido = (r as Ok<OfflinePaymentReceived>).value;
+
+      expect(fila.enfileiradas.last.payload['payments'], [
+        {'payment_method': 'PIX', 'amount': '100.00'},
+        {'payment_method': 'DINHEIRO', 'amount': '150.00'},
+      ]);
+      expect(recebido.sale.paymentMethod, PaymentMethod.dinheiro);
+      expect(recebido.document.payments, hasLength(2));
+      expect(recebido.document.paymentMethodLabel, 'PIX + Dinheiro');
+    });
+
+    test('soma que não fecha com o total é recusada e nada vai à fila',
+        () async {
+      final venda = await venderSemRede(PaymentMethod.pix);
+
+      final r = await receber()(
+        sale: venda.result.sale,
+        document1: venda.result.document!,
+        receiverName: 'João Silva',
+        payments: const [
+          OfflinePaymentPart(PaymentMethod.pix, Money.fromCents(10000)),
+          OfflinePaymentPart(PaymentMethod.dinheiro, Money.fromCents(10000)),
+        ],
+      );
+
+      expect(r, isA<Err<OfflinePaymentReceived>>());
+      expect(fila.enfileiradas, hasLength(1));
+      expect(impressora.printed, isEmpty);
+    });
+
+    test('as regras do caixa valem aqui', () async {
+      final venda = (await venderSemRede(PaymentMethod.pix)).result.sale;
+      const total = Money.fromCents(25000);
+
+      expect(
+        offlinePaymentProblem(venda, const [
+          OfflinePaymentPart(PaymentMethod.pix, Money.fromCents(5000)),
+          OfflinePaymentPart(PaymentMethod.dinheiro, Money.fromCents(10000)),
+          OfflinePaymentPart(PaymentMethod.debito, Money.fromCents(10000)),
+        ]),
+        contains('no máximo 2'),
+      );
+      expect(
+        offlinePaymentProblem(venda, const [
+          OfflinePaymentPart(PaymentMethod.pix, Money.fromCents(10000)),
+          OfflinePaymentPart(PaymentMethod.pix, Money.fromCents(15000)),
+        ]),
+        contains('diferentes'),
+      );
+      expect(
+        offlinePaymentProblem(venda, const [
+          OfflinePaymentPart(PaymentMethod.notinha, total),
+        ]),
+        contains('Notinha'),
+      );
+      expect(
+        offlinePaymentProblem(venda, const [
+          OfflinePaymentPart(PaymentMethod.credito, total),
+        ]),
+        isNull,
+      );
+    });
+
+    test('venda com desconto não vai no crédito, nem como parte', () {
+      final comDesconto = Sale(
+        id: 0,
+        uuid: 'u',
+        storeId: 1,
+        sellerId: 12,
+        sellerName: 'João Silva',
+        status: SaleStatus.aguardandoCaixa,
+        paymentMethod: PaymentMethod.pix,
+        barcode: 'X',
+        grossAmount: const Money.fromCents(25000),
+        discountAmount: const Money.fromCents(1000),
+        totalAmount: const Money.fromCents(24000),
+        items: const [],
+        occurredAt: DateTime(2026, 11, 5),
+        createdOffline: true,
+      );
+
+      expect(
+        offlinePaymentProblem(comDesconto, const [
+          OfflinePaymentPart(PaymentMethod.pix, Money.fromCents(14000)),
+          OfflinePaymentPart(PaymentMethod.credito, Money.fromCents(10000)),
+        ]),
+        contains('crédito'),
+      );
+    });
+  });
 }

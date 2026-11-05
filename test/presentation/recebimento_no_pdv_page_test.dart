@@ -36,10 +36,11 @@ void main() {
   late _Fila fila;
   late FakeDocumentPrinter impressora;
 
-  SaleFinished vendaOffline({String forma = 'DINHEIRO'}) {
+  SaleFinished vendaOffline({String forma = 'DINHEIRO', String desconto = '0.00'}) {
     final json = saleJson(id: 0)
       ..['payment_method'] = forma
       ..['created_offline'] = true
+      ..['discount_amount'] = desconto
       ..['document_1'] = documentJson();
     return SaleFinished(
       result: saleWithDocumentFromJson(json),
@@ -97,7 +98,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('valor-recebido')), '100');
     await tester.pump();
 
-    expect(find.text('Valor menor que o total.'), findsOneWidget);
+    expect(find.text('Valor menor que o devido em dinheiro.'), findsOneWidget);
     final botao = tester.widget<ButtonStyleButton>(
       find.byKey(const Key('confirmar-recebimento')),
     );
@@ -113,6 +114,68 @@ void main() {
     expect(fila.enfileiradas, isEmpty);
     expect(impressora.printed, hasLength(1));
     expect(find.text('rota: /venda/concluida'), findsOneWidget);
+  });
+
+  testWidgets('troca a forma: vendida em PIX, recebida em débito', (tester) async {
+    await montar(tester, vendaOffline(forma: 'PIX'));
+
+    await tester.tap(find.byKey(const Key('forma-primeira-DEBITO')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('confirmar-recebimento')));
+    await tester.pumpAndSettle();
+
+    expect(fila.enfileiradas.single.payload['payments'], [
+      {'payment_method': 'DEBITO', 'amount': '1500.00'},
+    ]);
+  });
+
+  testWidgets('divide entre dinheiro e PIX, com troco só sobre o dinheiro',
+      (tester) async {
+    await montar(tester, vendaOffline());
+
+    await tester.tap(find.byKey(const Key('dividir-pagamento')));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('valor-da-primeira')), '1000');
+    await tester.tap(find.byKey(const Key('forma-segunda-PIX')));
+    await tester.pump();
+    expect(find.text('Em PIX: R\$ 500,00'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('valor-recebido')), '1100');
+    await tester.pump();
+    expect(find.text('Troco: R\$ 100,00'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('confirmar-recebimento')));
+    await tester.pumpAndSettle();
+
+    expect(fila.enfileiradas.single.payload['payments'], [
+      {'payment_method': 'DINHEIRO', 'amount': '1000.00'},
+      {'payment_method': 'PIX', 'amount': '500.00'},
+    ]);
+  });
+
+  testWidgets('dividir sem segunda forma não deixa confirmar', (tester) async {
+    await montar(tester, vendaOffline(forma: 'PIX'));
+
+    await tester.tap(find.byKey(const Key('dividir-pagamento')));
+    await tester.pump();
+
+    expect(find.text('Escolha a segunda forma.'), findsOneWidget);
+    expect(
+      tester
+          .widget<ButtonStyleButton>(find.byKey(const Key('confirmar-recebimento')))
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('venda com desconto não oferece crédito', (tester) async {
+    await montar(tester, vendaOffline(forma: 'PIX', desconto: '10.00'));
+
+    final credito = tester.widget<ChoiceChip>(
+      find.byKey(const Key('forma-primeira-CREDITO')),
+    );
+    expect(credito.onSelected, isNull);
+    expect(find.text('Venda com desconto não pode ser no crédito.'), findsOneWidget);
   });
 
   test('o comprovante emitido é o documento 2', () {
