@@ -40,6 +40,7 @@ import '../domain/usecases/check_payment.dart';
 import '../domain/usecases/create_sale.dart';
 import '../domain/usecases/find_sale_by_barcode.dart';
 import '../domain/usecases/open_terminal.dart';
+import '../domain/usecases/receive_offline_payment.dart';
 import '../domain/usecases/reprint_document.dart';
 import '../domain/usecases/select_seller.dart';
 import '../platform/connectivity/connectivity_channel.dart';
@@ -97,7 +98,11 @@ class AppDependencies {
     this.syncQueue,
     this.referenceCache,
     this.syncScheduler,
+    bool receiveAtTerminalWhenOffline = false,
   })  : openTerminal = OpenTerminal(auth),
+        receiveOfflinePayment = syncQueue == null || !receiveAtTerminalWhenOffline
+            ? null
+            : ReceiveOfflinePayment(queue: syncQueue, printer: printer),
         selectSeller = SelectSeller(auth),
         createSale = CreateSale(
           sales: sales,
@@ -105,6 +110,9 @@ class AppDependencies {
           queue: syncQueue,
           // Lido na hora da venda, e não aqui: a identidade é aprendida ao longo
           // do uso, e o grafo é montado antes da primeira venda.
+          // Recebendo no PDV, o papel da venda offline espera a escolha do
+          // vendedor: comprovante de retirada ou encaminhamento ao caixa.
+          holdOfflineDocument: receiveAtTerminalWhenOffline && syncQueue != null,
           offlineContext: syncQueue == null || referenceCache == null
               ? null
               : () => _offlineContextFrom(
@@ -116,6 +124,9 @@ class AppDependencies {
         reprintDocument = ReprintDocument(sales: sales, printer: printer),
         findSaleByBarcode = FindSaleByBarcode(sales),
         checkPayment = CheckPayment(sales);
+
+  /// Recebimento no próprio PDV quando não há internet. Ausente sem fila.
+  final ReceiveOfflinePayment? receiveOfflinePayment;
 
   /// A fila de operações pendentes (RF35). Ausente nos testes que não precisam
   /// de banco, e aí a venda offline simplesmente não acontece.
@@ -194,6 +205,7 @@ class AppDependencies {
       syncQueue: fila,
       referenceCache: cache,
       syncScheduler: scheduler,
+      receiveAtTerminalWhenOffline: true,
     );
   }
 

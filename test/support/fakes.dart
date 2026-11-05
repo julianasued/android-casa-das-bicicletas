@@ -123,6 +123,8 @@ AppDependencies buildTestDependencies({
   /// O que o canal de rede responde. A tela da fila muda com isto: sem rede,
   /// o botão de enviar não deve nem ficar disponível.
   bool online = true,
+  /// Sem rede, o PDV recebe o pagamento (exige `syncQueue`).
+  bool receiveAtTerminalWhenOffline = false,
 }) {
   TestWidgetsFlutterBinding.ensureInitialized();
   _stubPlatformChannels(online: online);
@@ -160,6 +162,7 @@ AppDependencies buildTestDependencies({
     device: const DeviceChannel(),
     syncQueue: syncQueue,
     syncScheduler: syncScheduler,
+    receiveAtTerminalWhenOffline: receiveAtTerminalWhenOffline,
   );
 }
 

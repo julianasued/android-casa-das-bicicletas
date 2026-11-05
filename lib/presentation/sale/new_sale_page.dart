@@ -27,6 +27,7 @@ import '../../domain/rules/sale_draft.dart';
 import '../../domain/rules/sale_pricing.dart';
 import '../../domain/usecases/create_sale.dart';
 import '../../platform/connectivity/connectivity_channel.dart';
+import 'offline_payment_page.dart';
 import '../shared/brand.dart';
 import '../shared/feedback.dart';
 import 'customer_picker_page.dart';
@@ -453,6 +454,14 @@ class _NewSalePageState extends State<NewSalePage> {
     navigator.pop();
 
     switch (result) {
+      // Sem internet, com o papel retido: o vendedor escolhe entre receber
+      // aqui e mandar o cliente ao caixa.
+      case Ok(value: final SaleFinished finished) when finished.documentHeld:
+        await navigator.pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => OfflinePaymentPage(finished: finished),
+          ),
+        );
       case Ok(value: final SaleFinished finished):
         await navigator.pushReplacementNamed(
           AppRoutes.saleFinished,

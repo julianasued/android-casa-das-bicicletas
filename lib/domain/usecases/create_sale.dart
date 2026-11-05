@@ -37,9 +37,17 @@ class SaleFinished {
     this.pendingOperationId,
     this.customerPhone,
     this.discountPercentHundredths = 0,
+    this.documentHeld = false,
   });
 
   final SaleWithDocument result;
+
+  /// Venda offline cujo documento 1 **ainda não saiu**, de propósito.
+  ///
+  /// Sem internet o vendedor pode receber no próprio PDV, e aí o papel certo é
+  /// o comprovante de retirada, não o encaminhamento ao caixa. Quem decide qual
+  /// imprimir é a tela seguinte.
+  final bool documentHeld;
 
   /// Telefone do cliente, como estava no rascunho.
   ///
@@ -77,10 +85,16 @@ class CreateSale {
     required DocumentPrinter printer,
     SyncQueue? queue,
     Future<OfflineSaleContext?> Function()? offlineContext,
+    bool holdOfflineDocument = false,
   })  : _sales = sales,
         _printer = printer,
         _queue = queue,
-        _offlineContext = offlineContext;
+        _offlineContext = offlineContext,
+        _holdOfflineDocument = holdOfflineDocument;
+
+  /// Sem rede, não imprime o documento 1 na hora: a tela de recebimento no PDV
+  /// decide entre ele e o comprovante de retirada.
+  final bool _holdOfflineDocument;
 
   final SaleRepository _sales;
   final DocumentPrinter _printer;
@@ -161,7 +175,9 @@ class CreateSale {
     // em lugar nenhum é o pior desfecho possível.
     await fila.enqueue(contexto.operationFor(draft, document.saleOccurredAt));
 
-    final printed = await _printer.printDocument(document);
+    final printed = _holdOfflineDocument
+        ? const Ok<void>(null)
+        : await _printer.printDocument(document);
 
     return Ok(
       SaleFinished(
@@ -173,6 +189,7 @@ class CreateSale {
         pendingOperationId: draft.uuid,
         customerPhone: draft.customer?.phone,
         discountPercentHundredths: draft.discountPercentHundredths,
+        documentHeld: _holdOfflineDocument,
       ),
     );
   }
