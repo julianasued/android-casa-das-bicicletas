@@ -735,6 +735,16 @@ class _ProductResults extends StatelessWidget {
     if (controller.isSearching && controller.results.isEmpty) {
       return const LoadingView();
     }
+    // Sem rede e sem o produto no aparelho não é erro da venda: ela continua
+    // pelo valor e categoria, e vai para a fila ao finalizar (§13.9).
+    if (controller.searchFailure is NetworkFailure) {
+      return const EmptyView(
+        icon: Icons.wifi_off,
+        message: 'Sem internet, e este produto ainda não está salvo no '
+            'aparelho.\nLance a venda pelo valor e categoria: ela fica '
+            'guardada e é enviada quando a internet voltar.',
+      );
+    }
     if (controller.searchFailure != null) {
       return FailureView(
         failure: controller.searchFailure!,

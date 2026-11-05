@@ -141,10 +141,9 @@ class CreateSale {
 
   /// Guarda a venda na fila e imprime o documento provisório.
   ///
-  /// Devolve `null` quando não dá para vender offline — sem fila configurada ou
-  /// sem o mínimo para montar o cupom. Aí a falha de rede segue seu caminho, que
-  /// é o comportamento honesto: melhor o vendedor saber que não deu do que
-  /// receber um papel que não identifica a loja.
+  /// Devolve `null` só quando não há fila configurada ou o terminal não tem
+  /// vendedor/loja em sessão. Falta do nome da loja não impede: o documento
+  /// sai com o código dela.
   Future<Result<SaleFinished>?> _sellOffline(SaleDraft draft) async {
     final fila = _queue;
     final contexto = await _offlineContext?.call();
@@ -156,7 +155,6 @@ class CreateSale {
       seller: contexto.seller,
       storeCode: contexto.storeCode,
     );
-    if (document == null) return null;
 
     // A fila primeiro, o papel depois: a mesma ordem do caminho online, e pela
     // mesma razão. Um documento impresso de uma venda que não ficou registrada

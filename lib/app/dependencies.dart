@@ -13,6 +13,7 @@ import '../core/env.dart';
 import '../data/local/local_database.dart';
 import '../data/local/operation_queue.dart';
 import '../domain/repositories/sync_queue.dart';
+import '../domain/entities/terminal_identity.dart';
 import '../domain/rules/offline_sale_context.dart';
 import '../data/repositories/sync_repository_impl.dart';
 import '../domain/usecases/pull_reference_data.dart';
@@ -50,9 +51,9 @@ import '../platform/secure_store/secure_store_channel.dart';
 
 /// Junta sessão, identidade aprendida e serialização para a venda sem rede.
 ///
-/// Devolve `null` quando falta o que não se inventa — vendedor logado, código da
-/// loja, ou identidade aprendida. Aí a falha de rede segue seu caminho, e o
-/// vendedor sabe que não deu.
+/// Devolve `null` quando falta o que não se inventa — vendedor logado ou loja
+/// configurada. Sem identidade aprendida (nome, CNPJ, endereço), a venda segue
+/// mesmo assim: o documento sai com o código da loja.
 Future<OfflineSaleContext?> _offlineContextFrom({
   required ReferenceCache cache,
   required SessionManager session,
@@ -63,8 +64,8 @@ Future<OfflineSaleContext?> _offlineContextFrom({
   final storeId = session.storeId;
   if (seller == null || storeCode == null || storeId == null) return null;
 
-  final identity = await cache.identity();
-  if (identity == null) return null;
+  final identity = await cache.identity() ??
+      TerminalIdentity(storeCode: storeCode, learnedAt: DateTime.now());
 
   return OfflineSaleContext(
     identity: identity,

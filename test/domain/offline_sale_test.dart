@@ -281,18 +281,20 @@ void main() {
       expect(impressora.printed, isEmpty);
     });
 
-    test('sem o mínimo para o cupom, a falha de rede segue seu caminho',
+    test('sem nome de loja aprendido, a venda segue com o código da loja',
         () async {
-      // Melhor o vendedor saber que não deu do que receber um papel que não
-      // identifica a loja.
+      // Sem rede a venda não pode parar (§13.9): o terminal recém-instalado
+      // ainda não aprendeu o cabeçalho, e mesmo assim o cliente leva o papel.
       final resultado = await semRede(
         contexto: _contexto(identity: _identidade(storeName: '')),
       )(draft());
 
-      expect(resultado, isA<Err<SaleFinished>>());
-      expect((resultado as Err<SaleFinished>).failure, isA<NetworkFailure>());
-      expect(fila.enfileiradas, isEmpty);
-      expect(impressora.printed, isEmpty);
+      expect(resultado, isA<Ok<SaleFinished>>());
+      expect(fila.enfileiradas, hasLength(1));
+      expect(impressora.printed, hasLength(1));
+      final documento =
+          (resultado as Ok<SaleFinished>).value.result.document!;
+      expect(documento.storeName, contains('LOJA'));
     });
 
     test('sem fila configurada, o caso de uso age como antes', () async {
