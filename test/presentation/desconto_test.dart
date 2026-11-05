@@ -1,6 +1,6 @@
 /// Tela de desconto (referência tela-desconto, §10 do fluxo).
 ///
-/// O teto de 5% (13.3) é regra do projeto, e a referência oferece atalhos de
+/// O teto de 7% (13.3) é regra do projeto, e a referência oferece atalhos de
 /// 10, 15 e 20% que o servidor recusaria no envio. O que se garante aqui é que
 /// a tela respeita o teto e mostra o resultado antes de aplicar.
 library;
@@ -83,7 +83,7 @@ void main() {
       expect(find.text('SEM DESCONTO'), findsOneWidget);
     });
 
-    testWidgets('os atalhos ficam todos dentro do teto de 5%', (tester) async {
+    testWidgets('os atalhos ficam todos dentro do teto de 7%', (tester) async {
       await abrirComVenda(tester);
       await abrirDesconto(tester);
 
@@ -119,7 +119,7 @@ void main() {
     });
   });
 
-  group('o teto de 5% (13.3)', () {
+  group('o teto de 7% (13.3)', () {
     testWidgets('acima do teto avisa e trava o aplicar', (tester) async {
       await abrirComVenda(tester);
       await abrirDesconto(tester);
@@ -128,7 +128,7 @@ void main() {
         await tocar(tester, noDialogo(d));
       }
 
-      expect(find.text('O desconto máximo é de 5%.'), findsOneWidget);
+      expect(find.text('O desconto máximo é de 7%.'), findsOneWidget);
       final aplicar = tester.widget<FilledButton>(
         find.ancestor(
           of: find.text('APLICAR DESCONTO'),
@@ -272,9 +272,9 @@ void main() {
       await abrirComVenda(tester);
       await abrirDesconto(tester);
       await trocarParaReais(tester);
-      await digitar(tester, '500');
+      await digitar(tester, '700');
 
-      expect(find.text('O desconto máximo é de 5%.'), findsNothing);
+      expect(find.text('O desconto máximo é de 7%.'), findsNothing);
       expect(aplicar(tester).onPressed, isNotNull);
     });
 
@@ -282,11 +282,11 @@ void main() {
       await abrirComVenda(tester);
       await abrirDesconto(tester);
       await trocarParaReais(tester);
-      // R$ 6,00 em R$ 100,00 são 6%: o teto é o mesmo dos dois lados.
-      await digitar(tester, '600');
+      // R$ 8,00 em R$ 100,00 são 8%: o teto é o mesmo dos dois lados.
+      await digitar(tester, '800');
 
-      expect(find.text('O desconto máximo é de 5%.'), findsOneWidget);
-      expect(noDialogo('6%'), findsOneWidget);
+      expect(find.text('O desconto máximo é de 7%.'), findsOneWidget);
+      expect(noDialogo('8%'), findsOneWidget);
       expect(aplicar(tester).onPressed, isNull);
     });
 
@@ -436,10 +436,10 @@ void main() {
       await abrirDesconto(tester);
       await trocarParaReais(tester);
       // O teto em reais desta venda.
-      await digitar(tester, '6940');
+      await digitar(tester, '9716');
 
-      expect(noDialogo('- R\$ 69,40'), findsOneWidget);
-      expect(find.text('O desconto máximo é de 5%.'), findsNothing);
+      expect(noDialogo('- R\$ 97,16'), findsOneWidget);
+      expect(find.text('O desconto máximo é de 7%.'), findsNothing);
       expect(aplicar(tester).onPressed, isNotNull);
     });
 
@@ -447,11 +447,11 @@ void main() {
       await abrirVendaQuebrada(tester);
       await abrirDesconto(tester);
       await trocarParaReais(tester);
-      await digitar(tester, '6941');
+      await digitar(tester, '9717');
 
-      // 6941 daria 5,00% se medido pelo percentual arredondado, e passaria.
+      // 9717 daria 7,00% se medido pelo percentual arredondado, e passaria.
       // O teto é conferido em reais justamente por isso.
-      expect(find.text('O desconto máximo é de 5%.'), findsOneWidget);
+      expect(find.text('O desconto máximo é de 7%.'), findsOneWidget);
       expect(aplicar(tester).onPressed, isNull);
     });
 

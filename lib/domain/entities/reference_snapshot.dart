@@ -23,6 +23,7 @@ class ReferenceSnapshot {
     this.products = const <Product>[],
     this.customers = const <Customer>[],
     this.categories = const <ProductCategory>[],
+    this.nextCursor,
   });
 
   /// Hora **do servidor** em que este retrato foi tirado.
@@ -39,6 +40,16 @@ class ReferenceSnapshot {
   final List<Product> products;
   final List<Customer> customers;
   final List<ProductCategory> categories;
+
+  /// Valor opaco para pedir a página seguinte, ou nulo quando acabou (§3.9.3).
+  ///
+  /// A carga de uma loja grande não cabe numa resposta — o terminal desiste em
+  /// 20 segundos. O cursor é do servidor e o terminal só o devolve: ele leva o
+  /// `since`, o instante congelado e a posição exata em que a página parou, e é
+  /// o que permite parar no meio e continuar depois.
+  final String? nextCursor;
+
+  bool get hasMore => nextCursor != null;
 
   bool get isEmpty => products.isEmpty && customers.isEmpty && categories.isEmpty;
 

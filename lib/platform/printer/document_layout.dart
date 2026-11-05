@@ -2,7 +2,9 @@
 ///
 /// O conteúdo obrigatório está nos §7 e §8 da especificação de integração com o
 /// M10 Pro; o que este arquivo decide é a **forma**: onde quebra a linha, o que
-/// fica à esquerda e o que fica à direita, o que é destaque.
+/// fica à esquerda e o que fica à direita, o que é destaque. A forma segue o
+/// modelo das duas vias — nota de conferência e comprovante de retirada —,
+/// desenhado para 80 mm e aqui trazido para as 32 colunas desta bobina.
 ///
 /// É código puro de propósito — entra um `PrintedDocument`, saem comandos. Sem
 /// impressora, sem canal, sem Flutter: o layout do papel que o cliente leva ao
@@ -11,7 +13,6 @@
 library;
 
 import '../../core/formatters.dart';
-import '../../core/quantity.dart';
 import '../../domain/entities/printed_document.dart';
 import 'print_command.dart';
 
@@ -23,14 +24,23 @@ class DocumentLayout {
 
   final int columns;
 
-  List<PrintCommand> build(PrintedDocument document) => <PrintCommand>[
-        ..._header(document),
-        ..._identification(document),
-        ..._items(document),
-        ..._totals(document),
-        ..._confirmation(document),
-        ..._footer(document),
-      ];
+  List<PrintCommand> build(PrintedDocument document) => switch (document.type) {
+        DocumentType.doc1 => <PrintCommand>[
+            ..._header(document),
+            ..._identification(document),
+            ..._items(document),
+            ..._totals(document),
+            ..._barcode(document),
+            ..._closing(),
+          ],
+        DocumentType.doc2 => <PrintCommand>[
+            ..._header(document),
+            ..._release(document),
+            ..._barcode(document),
+            ..._handover(),
+            ..._closing(),
+          ],
+      };
 
   /// Página de teste da instalação — confere bobina, alinhamento e código.
   List<PrintCommand> buildTestPage({required String terminalName}) => <PrintCommand>[
@@ -62,126 +72,95 @@ class DocumentLayout {
   // Blocos
   // -------------------------------------------------------------------------
 
-  /// Identificação da empresa e o que é este papel.
+  /// O logo e o que é este papel.
   ///
-  /// O CNPJ e o endereço não estão no modelo visual — ele é um desenho de
-  /// referência, e omite o que a nota de verdade precisa carregar: §7 da
-  /// integração exige a identificação da empresa. O resto do cabeçalho segue
-  /// o modelo.
-  List<PrintCommand> _header(PrintedDocument document) => <PrintCommand>[
+  /// A identificação da empresa que o §7 da integração exige é o logo. CNPJ e
+  /// endereço saíram: as duas vias são comprovante interno, e é isso que o pé
+  /// do papel diz.
+  ///
+  /// A 1ª via é a nota de conferência, que o cliente leva ao caixa; a 2ª é o
+  /// comprovante de retirada, que o caixa emite e o cliente entrega ao
+  /// vendedor. "Via" aqui é o papel do fluxo — a reimpressão tem marca própria,
+  /// para as duas coisas não se confundirem.
+  List<PrintCommand> _header(PrintedDocument document) {
+    final conferencia = document.type == DocumentType.doc1;
+
+    return <PrintCommand>[
+      PrintLogo(
+        fallback: document.storeName.toUpperCase(),
+        size: conferencia ? LogoSize.regular : LogoSize.small,
+      ),
+      PrintText(_divider('=')),
+      PrintText(
+        conferencia ? 'NOTA DE CONFERÊNCIA' : 'COMPROVANTE DE RETIRADA',
+        align: PrintAlign.center,
+        bold: true,
+        // Só a nota de conferência ganha corpo alto: a de retirada é curta de
+        // propósito, e o destaque dela é a faixa "MERCADORIA LIBERADA".
+        doubleHeight: conferencia,
+      ),
+      PrintText(
+        conferencia ? '1ª VIA' : '2ª VIA',
+        align: PrintAlign.center,
+        bold: true,
+        doubleHeight: conferencia,
+      ),
+      if (document.isReprint)
         PrintText(
-          document.storeName.toUpperCase(),
+          '** REIMPRESSÃO ${document.sequence} **',
           align: PrintAlign.center,
           bold: true,
         ),
-        if (document.storeDocument.isNotEmpty)
-          PrintText(
-            'CNPJ ${formatDocument(document.storeDocument)}',
-            align: PrintAlign.center,
-          ),
-        if (document.storeAddress.isNotEmpty)
-          ..._wrapped(document.storeAddress, align: PrintAlign.center),
-        PrintText('Loja ${document.storeCode}', align: PrintAlign.center),
-        PrintText(
-          _titleFor(document),
-          align: PrintAlign.center,
-          bold: true,
-        ),
-        if (document.isReprint)
-          PrintText(
-            '** ${document.sequence}a VIA - REIMPRESSAO **',
-            align: PrintAlign.center,
-            bold: true,
-          ),
-        PrintText(_divider()),
-      ];
-
-  String _titleFor(PrintedDocument document) => switch (document.type) {
-        DocumentType.doc1 => 'ENCAMINHAMENTO AO CAIXA',
-        DocumentType.doc2 => 'DOCUMENTO DE RETIRADA',
-      };
-
-  /// Quem vendeu, para quem, qual venda e quando — no formato `Rótulo:valor`
-  /// do modelo.
-  ///
-  /// Vendedor e cliente saem em linhas separadas, e não na mesma linha do
-  /// modelo, por aritmética: dois nomes completos não cabem em 32 colunas, e
-  /// cortar nome de cliente no papel que ele leva ao caixa é pior que gastar
-  /// uma linha a mais.
-  List<PrintCommand> _identification(PrintedDocument document) => <PrintCommand>[
-        PrintText('Vendedor:${_fit(document.sellerName, reserved: 9)}'),
-        PrintText(
-          'Cliente:${_fit(document.customerName ?? 'nao informado', reserved: 8)}',
-        ),
-        // Só quando o terminal tem nome: na venda montada offline o cadastro
-        // pode não ter chegado ainda, e "Terminal:" sozinho é ruído no papel.
-        if (document.terminalName.isNotEmpty)
-          PrintText('Terminal:${_fit(document.terminalName, reserved: 9)}'),
-        PrintText('VENDA:#${document.saleId}'),
-        PrintText('REF:${_fit(document.reference, reserved: 4)}'),
-        PrintText(
-          _row(
-            'Data:${formatDate(document.saleOccurredAt)}',
-            'Hora:${formatTime(document.saleOccurredAt)}',
-          ),
-        ),
-        PrintText(_columns('ITEM', 'QTD', 'VALOR'), bold: true),
-        PrintText(_divider()),
-      ];
-
-  /// Os itens em três colunas, como no modelo: nome, quantidade e total.
-  ///
-  /// O preço unitário só aparece quando a quantidade não é 1 — aí ele deixa de
-  /// ser repetição do total e vira a conta que o cliente confere. Com nome
-  /// maior que a coluna, o nome ocupa a linha inteira e a conta desce para a
-  /// seguinte: o nome é o que se confere primeiro, e cortá-lo é pior que
-  /// gastar linha.
-  List<PrintCommand> _items(PrintedDocument document) {
-    final commands = <PrintCommand>[];
-
-    for (final item in document.items) {
-      final quantidade = item.quantity.toDisplayString();
-      final total = item.lineTotal.toDisplayString(symbol: false);
-
-      if (item.productName.length <= _larguraDoItem) {
-        commands.add(PrintText(_columns(item.productName, quantidade, total)));
-      } else {
-        commands.addAll(_wrapped(item.productName));
-        commands.add(PrintText(_columns('', quantidade, total)));
-      }
-
-      if (item.quantity != const Quantity.units(1)) {
-        commands.add(
-          PrintText(
-            '  $quantidade x ${item.unitPrice.toDisplayString(symbol: false)}',
-          ),
-        );
-      }
-    }
-
-    if (document.hasDiscount) {
-      commands.add(
-        PrintText(
-          _row(
-            '[Desconto]',
-            '-${document.discountAmount.toDisplayString(symbol: false)}',
-          ),
-        ),
-      );
-    }
-
-    commands.add(PrintText(_divider()));
-    return commands;
+      PrintText(_divider('=')),
+      if (conferencia) const PrintBanner('LEVE AO CAIXA PARA PAGAMENTO'),
+    ];
   }
 
-  /// Subtotal, desconto e o total — com a forma de pagamento repetindo o valor
-  /// embaixo, como no modelo.
+  /// Qual venda, quando e quem vendeu — rótulo à esquerda, valor à direita.
   ///
-  /// O subtotal sai sempre, mesmo sem desconto: no modelo ele é uma linha
-  /// fixa, e uma nota que mostra só o total esconde a conta de quem confere.
+  /// Cliente e forma de pagamento não estão no modelo da nota, mas ficam: a
+  /// forma de pagamento é exigência do §7 da integração, e na notinha o nome
+  /// do cliente é o que o caixa confere antes de liberar. O cliente só sai
+  /// quando existe.
+  List<PrintCommand> _identification(PrintedDocument document) => <PrintCommand>[
+        PrintText(_row('Venda', document.saleBarcode)),
+        PrintText(_row('Data', formatDate(document.saleOccurredAt))),
+        PrintText(_row('Hora', formatTime(document.saleOccurredAt))),
+        PrintText(_labeled('Vendedor', document.sellerName)),
+        if (document.customerName != null)
+          PrintText(_labeled('Cliente', document.customerName!)),
+        PrintText(_labeled('Pagamento', document.paymentMethodLabel)),
+        PrintText(_divider()),
+        PrintText(_row('DESCRIÇÃO', 'TOTAL'), bold: true),
+        const PrintText('  QTD x UNITÁRIO', bold: true),
+        PrintText(_divider()),
+      ];
+
+  /// Os itens: o nome numa linha, a conta na seguinte.
+  ///
+  /// Tentar espremer nome, quantidade, unitário e total em 32 colunas corta
+  /// justamente o nome do produto, que é o que se confere primeiro.
+  List<PrintCommand> _items(PrintedDocument document) => <PrintCommand>[
+        for (final item in document.items) ...[
+          ..._wrapped(item.productName),
+          PrintText(
+            _row(
+              '  ${item.quantity.toDisplayString()} x '
+                  '${item.unitPrice.toDisplayString(symbol: false)}',
+              item.lineTotal.toDisplayString(symbol: false),
+            ),
+          ),
+        ],
+        PrintText(_divider()),
+      ];
+
+  /// Subtotal, desconto e o total a pagar em destaque.
+  ///
+  /// O subtotal sai sempre, mesmo sem desconto: uma nota que mostra só o total
+  /// esconde a conta de quem confere.
   List<PrintCommand> _totals(PrintedDocument document) => <PrintCommand>[
         PrintText(
-          _row('Sub-total', document.grossAmount.toDisplayString(symbol: false)),
+          _row('Subtotal', document.grossAmount.toDisplayString(symbol: false)),
         ),
         if (document.hasDiscount)
           PrintText(
@@ -192,88 +171,82 @@ class DocumentLayout {
           ),
         PrintText(_divider()),
         PrintText(
-          _row('Total', document.totalAmount.toDisplayString(symbol: false)),
+          _row('TOTAL A PAGAR', document.totalAmount.toDisplayString()),
           bold: true,
           doubleHeight: true,
-        ),
-        PrintText(
-          _row(
-            document.paymentMethodLabel,
-            document.totalAmount.toDisplayString(symbol: false),
-          ),
         ),
         PrintText(_divider()),
       ];
 
-  /// Só no documento 2: o que o caixa recebeu, de quem e quando (RF11/RF12).
-  List<PrintCommand> _confirmation(PrintedDocument document) {
-    if (document.type != DocumentType.doc2) return const <PrintCommand>[];
-
-    return <PrintCommand>[
-      const PrintText('PAGAMENTO CONFIRMADO', align: PrintAlign.center, bold: true),
-      if (document.confirmedAt != null)
-        PrintText(_row('Confirmado em', formatDateTime(document.confirmedAt!))),
-      if (document.cashierName != null)
-        PrintText(_row('Caixa', _fit(document.cashierName!))),
-      for (final payment in document.payments)
+  /// O miolo da 2ª via: qual venda, de quem, quanto — e que está liberada.
+  ///
+  /// Sem itens de propósito: quem confere a mercadoria é o vendedor, com a
+  /// venda na mão, e este papel só precisa dizer que o caixa liberou. A
+  /// referência do documento fica porque é ela que a devolução pede (13.4), e
+  /// a data porque o §8 da integração exige.
+  List<PrintCommand> _release(PrintedDocument document) => <PrintCommand>[
+        const PrintText('VENDA', align: PrintAlign.center),
+        PrintText(
+          document.saleBarcode,
+          align: PrintAlign.center,
+          bold: true,
+          doubleHeight: true,
+        ),
+        PrintText(_labeled('Ref.', document.reference)),
         PrintText(
           _row(
-            '  ${payment.paymentMethodLabel}',
-            payment.amount.toDisplayString(symbol: false),
+            'Emitido em',
+            formatDateTime(document.confirmedAt ?? document.printedAt),
           ),
         ),
-      PrintText(_divider()),
-    ];
-  }
+        PrintText(_labeled('Vendedor', document.sellerName)),
+        PrintText(
+          _row('Total da venda', document.totalAmount.toDisplayString()),
+          bold: true,
+        ),
+        const PrintBanner('MERCADORIA LIBERADA', large: true),
+      ];
 
-  /// O pé do papel: os dois códigos, o agradecimento e o aviso legal.
+  /// O código da venda, para o leitor e para quem precisar digitar.
   ///
-  /// O CODE 128 é o que o caixa bipa — sai como imagem, desenhada no canal
-  /// (`printer_channel.dart`), porque pelo SDK ele não decodifica neste
-  /// aparelho. O QR vai pelo SDK mesmo, que aqui funciona: conferido no M10 em
-  /// 10/09/2026 (§ "Como cada símbolo ficou" do checklist). Ele carrega o
-  /// mesmo código da venda — é o mesmo dado em outra forma, para quem tiver
-  /// celular na mão e não leitor.
-  List<PrintCommand> _footer(PrintedDocument document) => <PrintCommand>[
+  /// O CODE 128 sai como imagem, desenhada no canal (`printer_channel.dart`),
+  /// porque pelo SDK ele não decodifica neste aparelho. O texto vai embaixo
+  /// porque a imagem não tem legenda: quando o leitor falha, alguém digita.
+  List<PrintCommand> _barcode(PrintedDocument document) => <PrintCommand>[
         PrintBarcode(document.saleBarcode),
         PrintText(document.saleBarcode, align: PrintAlign.center),
+      ];
+
+  /// O que fazer com a 2ª via.
+  List<PrintCommand> _handover() => <PrintCommand>[
         PrintText(_divider()),
         const PrintText(
-          'OBRIGADO! VOLTE SEMPRE!',
+          'ENTREGUE ESTA VIA AO VENDEDOR',
           align: PrintAlign.center,
           bold: true,
         ),
-        ..._wrapped(document.notice, align: PrintAlign.center),
-        PrintQrCode(document.saleBarcode, align: PrintAlign.center),
-        PrintText(
-          'Impresso ${formatDateTime(document.printedAt)}',
+        const PrintText(
+          'PARA RETIRAR A MERCADORIA',
           align: PrintAlign.center,
+          bold: true,
         ),
-        if (document.printedByName.isNotEmpty)
-          PrintText('por ${document.printedByName}', align: PrintAlign.center),
-        const PrintFeed(2),
-        const PrintCut(),
+        PrintText(_divider()),
+      ];
+
+  /// O pé das duas vias, e o corte.
+  List<PrintCommand> _closing() => const <PrintCommand>[
+        PrintFeed(),
+        PrintText('Comprovante interno.', align: PrintAlign.center),
+        PrintText('Não possui valor fiscal.', align: PrintAlign.center),
+        PrintFeed(2),
+        PrintCut(),
       ];
 
   // -------------------------------------------------------------------------
   // Utilidades de largura
   // -------------------------------------------------------------------------
 
-  String _divider() => '-' * columns;
-
-  /// Largura das colunas QTD e VALOR; o que sobra é do nome do item.
-  static const int _larguraDaQuantidade = 3;
-  static const int _larguraDoValor = 10;
-
-  int get _larguraDoItem =>
-      columns - _larguraDaQuantidade - _larguraDoValor - 2;
-
-  /// As três colunas do modelo — ITEM, QTD e VALOR — alinhadas na mesma
-  /// medida do cabeçalho até a última linha.
-  String _columns(String item, String quantidade, String valor) =>
-      '${item.padRight(_larguraDoItem).substring(0, _larguraDoItem)} '
-      '${quantidade.padLeft(_larguraDaQuantidade)} '
-      '${valor.padLeft(_larguraDoValor)}';
+  String _divider([String character = '-']) => character * columns;
 
   /// Rótulo à esquerda, valor à direita, preenchendo o meio com espaços.
   String _row(String left, String right) {
@@ -285,6 +258,17 @@ class DocumentLayout {
       return '$trimmed $right';
     }
     return '$left${' ' * space}$right';
+  }
+
+  /// Rótulo e um valor de texto livre — nome, referência —, que é quem cede
+  /// quando os dois não cabem: nome cortado ainda identifica, linha estourada
+  /// desalinha o papel inteiro.
+  String _labeled(String label, String value) {
+    final available = columns - label.length - 1;
+    return _row(
+      label,
+      value.length <= available ? value : value.substring(0, available),
+    );
   }
 
   /// Quebra o texto na largura da bobina, sem partir palavra no meio.
@@ -312,13 +296,6 @@ class DocumentLayout {
 
     return [for (final line in lines) PrintText(line, align: align)];
   }
-
-  /// Corta um valor que não pode empurrar a linha para fora da bobina.
-  String _fit(String value, {int reserved = 12}) {
-    final available = columns - reserved;
-    if (value.length <= available) return value;
-    return value.substring(0, available);
-  }
 }
 
 /// Texto do documento como sairia no papel — usado no teste e na pré-visualização.
@@ -337,6 +314,10 @@ String renderCommandsAsText(List<PrintCommand> commands, {int columns = paperCol
         buffer.writeln(_centered('[${symbology.code}: $data]', columns));
       case PrintQrCode(:final data):
         buffer.writeln(_centered('[QR: $data]', columns));
+      case PrintLogo():
+        buffer.writeln(_centered('[LOGO]', columns));
+      case PrintBanner(:final text):
+        buffer.writeln(_centered(text, columns));
       case PrintImage(:final path):
         buffer.writeln(_centered('[IMG: $path]', columns));
       case PrintImageBytes(:final label):

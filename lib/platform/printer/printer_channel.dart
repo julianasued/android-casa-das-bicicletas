@@ -12,6 +12,7 @@
 /// porque é um aparelho só.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/failure.dart';
@@ -99,9 +100,10 @@ class PrinterChannel implements DocumentPrinter, PrinterDiagnostics {
 
   @override
   Future<Result<void>> sendCommands(List<PrintCommand> commands) async =>
-      _call('print', {'commands': encodeCommands(await _drawBarcodes(commands))});
+      _call('print', {'commands': encodeCommands(await _drawImages(commands))});
 
-  /// Troca cada CODE 128 pelo bitmap que desenhamos.
+  /// Troca por imagem o que o SDK não sabe imprimir direito: o CODE 128, o QR
+  /// centralizado, o logo e a faixa invertida.
   ///
   /// O SDK aceita o dado e devolve sucesso, mas no M10 quem dimensiona as
   /// barras é o serviço NYX e o resultado não decodifica — conferido no
@@ -114,7 +116,7 @@ class PrinterChannel implements DocumentPrinter, PrinterDiagnostics {
   ///
   /// As outras simbologias seguem pelo SDK. O EAN-8 lê bem por lá, e o que não
   /// se sabe se está quebrado não se conserta às cegas.
-  Future<List<PrintCommand>> _drawBarcodes(List<PrintCommand> commands) async {
+  Future<List<PrintCommand>> _drawImages(List<PrintCommand> commands) async {
     final saida = <PrintCommand>[];
 
     for (final command in commands) {
@@ -155,12 +157,35 @@ class PrinterChannel implements DocumentPrinter, PrinterDiagnostics {
             ),
           );
 
+        case PrintLogo():
+          final logo = await _loadLogo(command.size);
+          // Sem o arquivo, o comando segue como está e vira o nome da loja em
+          // texto (`PrintLogo.toMap`): o logo não pode impedir a venda de sair.
+          saida.add(logo == null ? command : PrintImageBytes(logo, label: 'LOGO'));
+
+        case PrintBanner():
+          saida.add(
+            PrintImageBytes(
+              await bannerPng(command.text, fontSize: command.large ? 34 : 22),
+              label: command.text,
+            ),
+          );
+
         default:
           saida.add(command);
       }
     }
 
     return saida;
+  }
+
+  Future<Uint8List?> _loadLogo(LogoSize size) async {
+    try {
+      final dados = await rootBundle.load(size.asset);
+      return dados.buffer.asUint8List(dados.offsetInBytes, dados.lengthInBytes);
+    } on FlutterError {
+      return null;
+    }
   }
 
   @override

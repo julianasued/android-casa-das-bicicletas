@@ -22,9 +22,11 @@ import 'package:flutter/material.dart';
 
 import '../../app/dependencies.dart';
 import '../../app/routes.dart';
+import '../../core/failure.dart';
 import '../../core/formatters.dart';
 import '../../core/money.dart';
 import '../../core/result.dart';
+import '../../domain/entities/pending_operation.dart';
 import '../../domain/entities/printed_document.dart';
 import '../../domain/entities/sale.dart';
 import '../../domain/usecases/create_sale.dart';
@@ -95,7 +97,64 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
   /// impressão é a via 1; cada reimpressão avança.
   late int _via = widget.finished.result.document?.sequence ?? 1;
 
+  /// O `id` desta venda **no servidor**, quando já existe.
+  ///
+  /// Numa venda online é o da resposta. Numa venda offline nasce zero — o
+  /// autoincremento é de lá — e só passa a existir quando a operação sincroniza.
+  /// Era daqui que vinha o `404`: as duas ações chamavam `/sales/0/` com o
+  /// cliente no balcão.
+  late int _idNoServidor = widget.finished.result.sale.id;
+
+  /// Em que pé está a ida desta venda ao servidor, lido da fila local.
+  SyncStatus? _situacaoNaFila;
+  bool _verificando = false;
+
+  _IdaAoServidor get _ida => _IdaAoServidor(
+        idNoServidor: _idNoServidor,
+        situacao: _situacaoNaFila,
+        verificando: _verificando,
+      );
+
   Sale get _sale => widget.finished.result.sale;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.finished.awaitsSync) {
+      // A venda pode ter subido entre a impressão e esta tela abrir — o
+      // agendador tenta a cada cinco minutos e na volta da rede.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _verificarSincronizacao());
+    }
+  }
+
+  /// Pergunta à fila local se esta venda já chegou ao servidor.
+  ///
+  /// Não é consulta de rede: o `server_id` é gravado na fila quando o lote
+  /// volta aceito (`markSynced`), e é a única forma de o terminal saber o número
+  /// que a venda recebeu. O documento impresso promete isso em letras: "o numero
+  /// do documento sai na reimpressao, depois da sincronizacao".
+  Future<void> _verificarSincronizacao() async {
+    final operationId = widget.finished.pendingOperationId;
+    final fila = context.deps.syncQueue;
+    if (operationId == null || fila == null) return;
+
+    setState(() => _verificando = true);
+    final operacao = await fila.find(operationId);
+    if (!mounted) return;
+
+    setState(() {
+      _verificando = false;
+      _situacaoNaFila = operacao?.status;
+
+      final id = operacao?.serverId;
+      // Só adota o id quando a operação **fechou** com ele: um `server_id`
+      // gravado em qualquer outro estado não existiria, e supor um id é
+      // exatamente o que produzia o 404.
+      if (operacao?.status == SyncStatus.sincronizado && id != null && id > 0) {
+        _idNoServidor = id;
+      }
+    });
+  }
 
   /// Pergunta ao servidor se o caixa já recebeu esta venda (RF10–RF12).
   ///
@@ -110,7 +169,7 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
     final navigator = Navigator.of(context);
     setState(() => _conferindo = true);
 
-    final resultado = await deps.checkPayment(_sale.id);
+    final resultado = await deps.checkPayment(_idNoServidor);
 
     if (!mounted) return;
     setState(() => _conferindo = false);
@@ -146,7 +205,7 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
     setState(() => _reprinting = true);
 
     final result =
-        await context.deps.reprintDocument(_sale.id, DocumentType.doc1);
+        await context.deps.reprintDocument(_idNoServidor, DocumentType.doc1);
 
     if (!mounted) return;
     setState(() => _reprinting = false);
@@ -158,6 +217,23 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
           _via = value.sequence;
         });
         showMessage(context, 'Documento reimpresso — via ${value.sequence}.');
+
+      // Resposta perdida na reimpressão é o único caso em que o terminal **não
+      // sabe** o que aconteceu, e precisa dizer isso (OFF-014). A rota é
+      // propositalmente não idempotente: cada pedido gera uma via nova e
+      // numerada (§3.4.3), que é o que torna a contagem de cópias auditável.
+      // Então o pedido pode ter sido registrado e só a resposta ter se perdido
+      // — e insistir às cegas registra uma via a mais do que o papel que
+      // existe no mundo.
+      //
+      // Quem tem a evidência é o balcão, não o aplicativo: a decisão fica com
+      // quem pode olhar se o papel saiu.
+      case Err(failure: NetworkFailure()):
+        showMessage(
+          context,
+          'Não deu para confirmar a reimpressão. Veja se o papel saiu: se saiu, '
+          'não repita — o servidor pode já ter contado esta via.',
+        );
       case Err(:final failure):
         showFailure(context, failure);
     }
@@ -259,7 +335,7 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
             Column(
               children: [
                 _Cabecalho(
-                  numeroDaVenda: _numeroDaVenda(_sale.id),
+                  numeroDaVenda: _numeroDaVenda(_idNoServidor),
                   vendedor: deps.session.seller?.name ?? _sale.sellerName,
                   onMenu: _abrirMenu,
                   onSair: _sair,
@@ -285,6 +361,8 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
                               onNovaVenda: _novaVenda,
                               onConferirPagamento: _conferirPagamento,
                               conferindo: _conferindo,
+                              ida: _ida,
+                              onVerificar: _verificarSincronizacao,
                             )
                           : _CorpoLargo(
                               finished: widget.finished,
@@ -296,6 +374,8 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
                               onNovaVenda: _novaVenda,
                               onConferirPagamento: _conferirPagamento,
                               conferindo: _conferindo,
+                              ida: _ida,
+                              onVerificar: _verificarSincronizacao,
                             );
                     },
                   ),
@@ -315,6 +395,26 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
 }
 
 /// `#0010` — o número que o cliente lê no papel e diz no caixa.
+
+/// O que a tela sabe sobre a ida desta venda ao servidor.
+///
+/// Existe como objeto para não espalhar quatro parâmetros pelos dois corpos
+/// (estreito e largo), que é como um deles acaba esquecido.
+class _IdaAoServidor {
+  const _IdaAoServidor({
+    required this.idNoServidor,
+    required this.situacao,
+    required this.verificando,
+  });
+
+  final int idNoServidor;
+  final SyncStatus? situacao;
+  final bool verificando;
+
+  /// A venda existe lá: as ações que dependem do servidor podem ser oferecidas.
+  bool get concluida => idNoServidor > 0;
+}
+
 String _numeroDaVenda(int id) => '#${id.toString().padLeft(4, '0')}';
 
 // ---------------------------------------------------------------------------
@@ -529,6 +629,8 @@ class _CorpoLargo extends StatelessWidget {
     required this.onNovaVenda,
     required this.onConferirPagamento,
     required this.conferindo,
+    required this.ida,
+    required this.onVerificar,
   });
 
   final SaleFinished finished;
@@ -540,6 +642,8 @@ class _CorpoLargo extends StatelessWidget {
   final VoidCallback onNovaVenda;
   final VoidCallback onConferirPagamento;
   final bool conferindo;
+  final _IdaAoServidor ida;
+  final VoidCallback onVerificar;
 
   @override
   Widget build(BuildContext context) {
@@ -570,12 +674,15 @@ class _CorpoLargo extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _CartaoDeSucesso(sale: sale),
+                        _CartaoDeSucesso(
+                          sale: sale,
+                          idNoServidor: ida.idNoServidor,
+                        ),
                         const SizedBox(height: 12),
                         _FaixaDaSituacao(sale: sale),
                         if (finished.awaitsSync) ...[
                           const SizedBox(height: 12),
-                          const _FaixaDaFila(),
+                          _FaixaDaFila(ida: ida, onVerificar: onVerificar),
                         ],
                         const SizedBox(height: 12),
                         _AvisoDoDocumento(
@@ -590,6 +697,7 @@ class _CorpoLargo extends StatelessWidget {
                 const SizedBox(height: 12),
                 _BotaoDeConferirPagamento(
                   ocupado: conferindo,
+                  habilitado: ida.concluida,
                   onPressed: onConferirPagamento,
                 ),
                 const SizedBox(height: 10),
@@ -597,6 +705,7 @@ class _CorpoLargo extends StatelessWidget {
                   via: via,
                   impresso: impresso,
                   ocupado: reimprimindo,
+                  habilitado: ida.concluida,
                   onPressed: onReimprimir,
                 ),
                 if (finished.result.document case final documento?) ...[
@@ -655,6 +764,8 @@ class _CorpoEstreito extends StatelessWidget {
     required this.onNovaVenda,
     required this.onConferirPagamento,
     required this.conferindo,
+    required this.ida,
+    required this.onVerificar,
   });
 
   final SaleFinished finished;
@@ -666,6 +777,8 @@ class _CorpoEstreito extends StatelessWidget {
   final VoidCallback onNovaVenda;
   final VoidCallback onConferirPagamento;
   final bool conferindo;
+  final _IdaAoServidor ida;
+  final VoidCallback onVerificar;
 
   @override
   Widget build(BuildContext context) {
@@ -679,12 +792,16 @@ class _CorpoEstreito extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _CartaoDeSucesso(sale: sale, compacto: true),
+                _CartaoDeSucesso(
+                  sale: sale,
+                  idNoServidor: ida.idNoServidor,
+                  compacto: true,
+                ),
                 const SizedBox(height: 10),
                 _FaixaDaSituacao(sale: sale),
                 if (finished.awaitsSync) ...[
                   const SizedBox(height: 10),
-                  const _FaixaDaFila(),
+                  _FaixaDaFila(ida: ida, onVerificar: onVerificar),
                 ],
                 const SizedBox(height: 10),
                 _AvisoDoDocumento(
@@ -695,6 +812,7 @@ class _CorpoEstreito extends StatelessWidget {
                 const SizedBox(height: 10),
                 _BotaoDeConferirPagamento(
                   ocupado: conferindo,
+                  habilitado: ida.concluida,
                   onPressed: onConferirPagamento,
                 ),
                 const SizedBox(height: 10),
@@ -702,6 +820,7 @@ class _CorpoEstreito extends StatelessWidget {
                   via: via,
                   impresso: impresso,
                   ocupado: reimprimindo,
+                  habilitado: ida.concluida,
                   onPressed: onReimprimir,
                 ),
                 if (finished.result.document case final documento?) ...[
@@ -754,9 +873,16 @@ class _CorpoEstreito extends StatelessWidget {
 
 /// O cartão verde: o que foi registrado, com o total em corpo grande.
 class _CartaoDeSucesso extends StatelessWidget {
-  const _CartaoDeSucesso({required this.sale, this.compacto = false});
+  const _CartaoDeSucesso({
+    required this.sale,
+    required this.idNoServidor,
+    this.compacto = false,
+  });
 
   final Sale sale;
+
+  /// O número da venda **no servidor**, ou zero enquanto ela não chegou lá.
+  final int idNoServidor;
   final bool compacto;
 
   @override
@@ -803,7 +929,13 @@ class _CartaoDeSucesso extends StatelessWidget {
             ),
           ),
           Text(
-            'Venda ${_numeroDaVenda(sale.id)}',
+            // Sem id do servidor não há número: imprimir '#0000' seria dar ao
+            // vendedor um número que não existe em lugar nenhum (OFF-013). Quem
+            // identifica a venda neste momento é o código de barras logo
+            // abaixo, que vale offline porque sai do uuid do terminal.
+            idNoServidor > 0
+                ? 'Venda ${_numeroDaVenda(idNoServidor)}'
+                : 'Venda registrada',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: compacto ? 28 : 34,
@@ -876,21 +1008,74 @@ class _FaixaDaSituacao extends StatelessWidget {
 /// de "registrada" —, e o vendedor sairia achando que o servidor já sabe da
 /// venda. Ele não sabe ainda, e é isso que precisa estar escrito.
 class _FaixaDaFila extends StatelessWidget {
-  const _FaixaDaFila();
+  const _FaixaDaFila({required this.ida, required this.onVerificar});
+
+  final _IdaAoServidor ida;
+  final VoidCallback onVerificar;
 
   @override
   Widget build(BuildContext context) {
-    return const _Faixa(
-      icone: Icons.cloud_upload_outlined,
-      rotulo: 'SINCRONIZAÇÃO',
-      valor: 'Registrada no terminal, ainda não enviada',
-      apoio: 'Sem rede agora. A venda sobe sozinha quando a conexão voltar, e '
-          'o documento já vale no caixa.',
-      fundo: Color(0xFFE8ECFB),
-      borda: Marca.azul,
-      sombra: Color(0xFFCBD3F0),
-      corDoRotulo: Marca.azul,
-      corDoValor: _Cor.tinta,
+    // Enquanto a venda não existe no servidor, "conferir pagamento" e
+    // "reimprimir" não têm o que consultar — e dizer isso é o que substitui o
+    // `404` que elas traziam com o cliente no balcão (OFF-013).
+    final (valor, apoio) = switch (ida) {
+      _IdaAoServidor(concluida: true) => (
+          'Enviada ao servidor',
+          'Já subiu: conferir pagamento e reimprimir com o número definitivo '
+              'estão disponíveis.',
+        ),
+      _IdaAoServidor(situacao: SyncStatus.conflitante) => (
+          'Travou na sincronização',
+          'Precisa de decisão do gerente ou do dono. Enquanto isso o documento '
+              'vale no caixa; conferir pagamento e reimprimir não.',
+        ),
+      _IdaAoServidor(situacao: SyncStatus.erro) => (
+          'O servidor recusou o envio',
+          'Vai ser tentada de novo. Veja o motivo em SINCRONIZAÇÃO, no menu. '
+              'O documento já vale no caixa.',
+        ),
+      _ => (
+          'Registrada no terminal, ainda não enviada',
+          'A venda sobe sozinha quando a conexão voltar, e o documento já vale '
+              'no caixa. Conferir pagamento e reimprimir só depois que ela '
+              'subir — é de lá que vem o número.',
+        ),
+    };
+
+    final concluida = ida.concluida;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Faixa(
+          icone: concluida ? Icons.cloud_done_outlined : Icons.cloud_upload_outlined,
+          rotulo: 'SINCRONIZAÇÃO',
+          valor: valor,
+          apoio: apoio,
+          fundo: const Color(0xFFE8ECFB),
+          borda: Marca.azul,
+          sombra: const Color(0xFFCBD3F0),
+          corDoRotulo: Marca.azul,
+          corDoValor: _Cor.tinta,
+        ),
+        if (!concluida) ...[
+          const SizedBox(height: 8),
+          // O vendedor está com o cliente na frente: a rede pode ter voltado
+          // nos últimos segundos, e o agendador tenta sozinho a cada cinco
+          // minutos. Isto só relê a fila local — não é chamada de rede.
+          TextButton.icon(
+            onPressed: ida.verificando ? null : onVerificar,
+            icon: ida.verificando
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh, size: 18),
+            label: Text(ida.verificando ? 'VERIFICANDO…' : 'JÁ SUBIU?'),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1135,10 +1320,15 @@ class _TextoDoDocumento extends StatelessWidget {
 class _BotaoDeConferirPagamento extends StatelessWidget {
   const _BotaoDeConferirPagamento({
     required this.ocupado,
+    required this.habilitado,
     required this.onPressed,
   });
 
   final bool ocupado;
+
+  /// Falso enquanto a venda não existe no servidor: não há o que consultar
+  /// (OFF-013). A faixa da sincronização é quem diz o porquê.
+  final bool habilitado;
   final VoidCallback onPressed;
 
   @override
@@ -1146,7 +1336,7 @@ class _BotaoDeConferirPagamento extends StatelessWidget {
     return SizedBox(
       height: 72,
       child: OutlinedButton.icon(
-        onPressed: ocupado ? null : onPressed,
+        onPressed: (ocupado || !habilitado) ? null : onPressed,
         icon: ocupado
             ? const SizedBox(
                 width: 22,
@@ -1182,12 +1372,17 @@ class _BotaoDeReimpressao extends StatelessWidget {
     required this.via,
     required this.impresso,
     required this.ocupado,
+    required this.habilitado,
     required this.onPressed,
   });
 
   final int via;
   final bool impresso;
   final bool ocupado;
+
+  /// Mesmo motivo do outro: sem venda no servidor não há documento a reimprimir
+  /// — o número do documento vem de lá (OFF-013).
+  final bool habilitado;
   final VoidCallback onPressed;
 
   @override
@@ -1198,7 +1393,7 @@ class _BotaoDeReimpressao extends StatelessWidget {
     return SizedBox(
       height: 72,
       child: OutlinedButton(
-        onPressed: ocupado ? null : onPressed,
+        onPressed: (ocupado || !habilitado) ? null : onPressed,
         style: OutlinedButton.styleFrom(
           backgroundColor: impresso ? _Cor.cartao : Marca.laranja,
           foregroundColor: impresso ? _Cor.texto : Colors.white,

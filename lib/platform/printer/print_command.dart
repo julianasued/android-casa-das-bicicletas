@@ -193,6 +193,63 @@ class PrintImageBytes extends PrintCommand {
   Map<String, Object?> toMap() => {'type': 'image_bytes', 'bytes': bytes};
 }
 
+/// Qual desenho do logo vai no topo do papel.
+///
+/// Os dois arquivos já estão em preto puro e centralizados numa faixa de 384
+/// pontos — a largura útil da bobina de 58 mm —, pelo mesmo motivo do código de
+/// barras: `ImprimeImagem` não recebe posição, e a folga precisa estar dentro
+/// da própria imagem.
+enum LogoSize {
+  regular('assets/logo/logo-termica.png'),
+
+  /// Para a via de retirada, que é curta de propósito.
+  small('assets/logo/logo-termica-pequena.png');
+
+  const LogoSize(this.asset);
+
+  final String asset;
+}
+
+/// O logo da loja, que identifica a empresa no topo do papel.
+///
+/// Quem lê o arquivo e o entrega como imagem é o canal
+/// (`printer_channel.dart`). Se o comando atravessar o canal como está — o
+/// arquivo não abriu —, vai como texto: papel sem logo ainda diz de quem é;
+/// papel que não sai por causa do logo, não.
+class PrintLogo extends PrintCommand {
+  const PrintLogo({required this.fallback, this.size = LogoSize.regular});
+
+  /// O nome da loja, impresso no lugar do logo quando a imagem falha.
+  final String fallback;
+  final LogoSize size;
+
+  @override
+  Map<String, Object?> toMap() =>
+      PrintText(fallback, align: PrintAlign.center, bold: true).toMap();
+}
+
+/// Faixa preta com o texto em branco, de margem a margem.
+///
+/// O SDK não tem impressão invertida, então o canal desenha a faixa e a manda
+/// como imagem. Vale a mesma saída de emergência do logo: sem desenho, o texto
+/// sai em negrito e centralizado.
+class PrintBanner extends PrintCommand {
+  const PrintBanner(this.text, {this.large = false});
+
+  final String text;
+
+  /// Corpo maior, para o aviso que precisa ser lido de longe.
+  final bool large;
+
+  @override
+  Map<String, Object?> toMap() => PrintText(
+        text,
+        align: PrintAlign.center,
+        bold: true,
+        doubleHeight: large,
+      ).toMap();
+}
+
 class PrintFeed extends PrintCommand {
   const PrintFeed([this.lines = 1]);
 

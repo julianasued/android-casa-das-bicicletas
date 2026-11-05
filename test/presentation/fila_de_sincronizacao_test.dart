@@ -66,6 +66,9 @@ class _FilaFalsa implements SyncQueue, SyncableQueue {
   Future<List<PendingOperation>> needingAttention() async => travadas;
 
   @override
+  Future<PendingOperation?> find(String operationId) async => null;
+
+  @override
   Future<List<PendingOperation>> nextBatch({int limit = 50}) async {
     envios++;
     return lote;
@@ -96,7 +99,7 @@ class _RepoFalso implements SyncRepository {
       Ok(desfechos);
 
   @override
-  Future<Result<ReferenceSnapshot>> pull({DateTime? since}) async =>
+  Future<Result<ReferenceSnapshot>> pull({DateTime? since, String? cursor}) async =>
       Ok(ReferenceSnapshot(syncedAt: DateTime(2026, 10, 9)));
 }
 

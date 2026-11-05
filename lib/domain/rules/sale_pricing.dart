@@ -13,7 +13,9 @@ library;
 import '../../core/money.dart';
 
 /// Teto de desconto negociável no balcão (13.3). O backend recusa acima disso.
-const int maxDiscountPercentHundredths = 500; // 5,00%
+/// Era 5%; subiu para 7% para caber o arredondamento do balcão
+/// (R$ 82,80 → R$ 82,00 passa de 5%).
+const int maxDiscountPercentHundredths = 700; // 7,00%
 
 /// Percentual, em centésimos, que aplica `amount` de desconto sobre `gross`.
 ///
@@ -77,11 +79,11 @@ class SaleDiscount {
       ? hundredths
       : discountPercentFromAmount(gross: gross, amount: amount!);
 
-  /// Se passou do teto de 5% (13.3), medido na unidade da negociação.
+  /// Se passou do teto de 7% (13.3), medido na unidade da negociação.
   ///
   /// Em reais a comparação é contra o teto **em reais**, e não contra o
-  /// percentual convertido: sobre R$ 1.387,93 o teto é R$ 69,40, então R$ 69,40
-  /// passa e R$ 69,41 não. É o mesmo centavo que o backend confere, e usar o
+  /// percentual convertido: sobre R$ 1.387,93 o teto é R$ 97,16, então R$ 97,16
+  /// passa e R$ 97,17 não. É o mesmo centavo que o backend confere, e usar o
   /// percentual arredondado aqui faria os dois discordarem na borda.
   bool exceedsCapOn(Money gross) => amount == null
       ? hundredths > maxDiscountPercentHundredths

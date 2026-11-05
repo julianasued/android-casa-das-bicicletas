@@ -152,6 +152,61 @@ void main() {
       ['text', 'image_bytes', 'feed', 'cut'],
     );
   });
+
+  group('logo e faixa invertida', () {
+    for (final tamanho in LogoSize.values) {
+      test('o logo ${tamanho.name} vai como imagem da largura do papel', () async {
+        await printer.sendCommands([
+          PrintLogo(fallback: 'CASA DAS BICICLETAS', size: tamanho),
+        ]);
+
+        expect(enviados.single['type'], 'image_bytes');
+
+        // 384 pontos: o `ImprimeImagem` não centraliza, então a folga já vem
+        // dentro do arquivo.
+        final tinta = await _extensaoDaTinta(enviados.single['bytes']! as Uint8List);
+        expect(tinta.largura, paperDots);
+        expect(tinta.inicio, greaterThan(0));
+        expect(tinta.inicio, closeTo(paperDots - 1 - tinta.fim, 2));
+      });
+    }
+
+    test('sem conseguir ler o logo, o nome da loja sai em texto', () {
+      // É o que atravessa o canal quando o arquivo não abre: o papel sai sem
+      // logo, mas sai.
+      final mapa = const PrintLogo(fallback: 'CASA DAS BICICLETAS').toMap();
+
+      expect(mapa['type'], 'text');
+      expect(mapa['value'], 'CASA DAS BICICLETAS');
+      expect(mapa['align'], 'center');
+    });
+
+    test('a faixa vira imagem preta de margem a margem', () async {
+      await printer.sendCommands([const PrintBanner('MERCADORIA LIBERADA', large: true)]);
+
+      expect(enviados.single['type'], 'image_bytes');
+
+      final tinta = await _extensaoDaTinta(enviados.single['bytes']! as Uint8List);
+      expect(tinta.largura, paperDots);
+      expect(tinta.inicio, 0);
+      expect(tinta.fim, paperDots - 1);
+    });
+
+    test('a faixa grande é mais alta que a comum', () async {
+      Future<int> altura(PrintBanner faixa) async {
+        await printer.sendCommands([faixa]);
+        // A altura está no cabeçalho do PNG.
+        return ByteData.sublistView(enviados.single['bytes']! as Uint8List).getUint32(20);
+      }
+
+      // Texto curto de propósito: um que não cabe encolhe até caber, e aí os
+      // dois corpos chegariam ao mesmo tamanho.
+      expect(
+        await altura(const PrintBanner('OK', large: true)),
+        greaterThan(await altura(const PrintBanner('OK'))),
+      );
+    });
+  });
 }
 
 /// Primeira e última coluna com tinta na imagem.
