@@ -65,7 +65,8 @@ void main() {
       expect(draft.canBeFinished, isTrue);
     });
 
-    test('desconto acima de 7% é recusado antes de ir à rede (13.3)', () {
+    // TETO DE DESCONTO DESATIVADO (06/11/2026): pausado até a regra voltar.
+    test('desconto acima de 7% é recusado antes de ir à rede (13.3)', skip: true, () {
       final draft = SaleDraft()
         ..add(_product())
         ..discountPercentHundredths = 701;

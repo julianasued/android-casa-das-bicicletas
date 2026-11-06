@@ -15,7 +15,15 @@ import '../../core/money.dart';
 /// Teto de desconto negociável no balcão (13.3). O backend recusa acima disso.
 /// Era 5%; subiu para 7% para caber o arredondamento do balcão
 /// (R$ 82,80 → R$ 82,00 passa de 5%).
+///
+/// TETO DE DESCONTO DESATIVADO (06/11/2026), a pedido da loja: o desconto é
+/// livre até o valor da venda. A constante e [SaleDiscount.exceedsCapOn]
+/// continuam aqui para quando a regra voltar — para reativar, procure
+/// "TETO DE DESCONTO DESATIVADO" no aplicativo e no backend e descomente.
 const int maxDiscountPercentHundredths = 700; // 7,00%
+
+/// 100%, em centésimos: o limite que vale sem o teto.
+const int fullDiscountPercentHundredths = 10000;
 
 /// Percentual, em centésimos, que aplica `amount` de desconto sobre `gross`.
 ///
@@ -88,6 +96,13 @@ class SaleDiscount {
   bool exceedsCapOn(Money gross) => amount == null
       ? hundredths > maxDiscountPercentHundredths
       : amount!.cents > gross.percent(maxDiscountPercentHundredths).cents;
+
+  /// Se passou do valor da venda — o limite que vale sem o teto de 7%.
+  ///
+  /// Desconto maior que o bruto deixaria o total negativo, e o backend recusa.
+  bool exceedsSaleOn(Money gross) => amount == null
+      ? hundredths > fullDiscountPercentHundredths
+      : amount!.cents > gross.cents;
 
   @override
   bool operator ==(Object other) =>

@@ -1307,8 +1307,9 @@ class _DiscountDialog extends StatefulWidget {
 /// A referência oferece "DESCONTO RÁPIDO" de 5, 10, 15 e 20% e um campo de
 /// valor em reais. Nenhum dos dois cabe aqui sem quebrar regra existente:
 ///
-/// - o teto é 7% (13.3), e 10, 15 ou 20 produziriam uma venda que o servidor
-///   recusa no envio — o vendedor descobriria só ao finalizar;
+/// - o teto era 7% (13.3), e 10, 15 ou 20 produziriam uma venda que o servidor
+///   recusaria no envio. O teto foi desativado em 06/11/2026 e os atalhos
+///   passaram a 3, 5, 8 e 10%;
 /// - `SaleCreateSerializer` aceita `discount_percent`, e não valor.
 ///
 /// Mantive o desenho — cabeçalho laranja com subtotal e "fica em", atalhos,
@@ -1321,7 +1322,9 @@ class _DiscountDialog extends StatefulWidget {
 /// para baixo é o mesmo caminho de sempre, com o mesmo teto e sem campo novo
 /// no backend.
 class _DiscountDialogState extends State<_DiscountDialog> {
-  static const _atalhos = [100, 200, 300, 500];
+  // Eram 1, 2, 3 e 5%, dentro do teto de 7%. Sem o teto (desativado em
+  // 06/11/2026), a loja pediu 3, 5, 8 e 10%.
+  static const _atalhos = [300, 500, 800, 1000];
 
   /// Quantos dígitos cada modo aceita. Em percentual 99,99% já passa longe do
   /// teto; em reais o teto de uma venda grande precisa de mais casas.
@@ -1360,9 +1363,13 @@ class _DiscountDialogState extends State<_DiscountDialog> {
   /// Percentual equivalente, só para mostrar ao lado do valor.
   int get _hundredths => _descontoNegociado.percentOn(widget.subtotal);
 
-  /// Teto de 7% medido na unidade negociada — o mesmo centavo que o backend
-  /// confere, e não um percentual arredondado no meio do caminho.
-  bool get _acimaDoTeto => _descontoNegociado.exceedsCapOn(widget.subtotal);
+  /// Acima do limite, medido na unidade negociada — o mesmo centavo que o
+  /// backend confere, e não um percentual arredondado no meio do caminho.
+  ///
+  /// TETO DE DESCONTO DESATIVADO (06/11/2026) — ver maxDiscountPercentHundredths.
+  /// Para reativar, troque pela linha comentada:
+  // bool get _acimaDoTeto => _descontoNegociado.exceedsCapOn(widget.subtotal);
+  bool get _acimaDoTeto => _descontoNegociado.exceedsSaleOn(widget.subtotal);
 
   /// O desconto que a venda vai receber, exatamente como vai receber.
   Money get _desconto =>
@@ -1864,7 +1871,9 @@ class _MostradorDoDesconto extends StatelessWidget {
         if (acimaDoTeto) ...[
           const SizedBox(height: 8),
           Text(
-            'O desconto máximo é de 7%.',
+            // TETO DE DESCONTO DESATIVADO (06/11/2026): era 'O desconto
+            // máximo é de 7%.' — volte o texto junto com a regra.
+            'O desconto não pode passar do valor da venda.',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
