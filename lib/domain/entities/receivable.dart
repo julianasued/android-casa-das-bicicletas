@@ -10,6 +10,9 @@ import '../../core/money.dart';
 /// Estados da pendência, conforme o `CHECK` de `receivable` no modelo de dados.
 enum ReceivableStatus {
   aberta('ABERTA', 'Aberta'),
+  // Paga em parte: o cliente ainda deve o que falta (pagamento em valor livre,
+  // desde 06/11/2026 no servidor).
+  parcial('PARCIAL', 'Parcial'),
   emRecebimento('EM_RECEBIMENTO', 'Em recebimento'),
   emAlteracao('EM_ALTERACAO', 'Em alteração'),
   quitada('QUITADA', 'Quitada'),
@@ -33,7 +36,7 @@ enum ReceivableStatus {
 
   /// Ainda deve dinheiro: é o que importa antes de liberar outra notinha.
   bool get isOutstanding =>
-      this == aberta || this == emRecebimento || this == vencida;
+      this == aberta || this == parcial || this == emRecebimento || this == vencida;
 }
 
 class Receivable {

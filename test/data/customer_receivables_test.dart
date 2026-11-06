@@ -82,6 +82,23 @@ void main() {
       expect(pendencia.createdAt.toUtc().hour, 14);
     });
 
+    test('notinha paga em parte é lida como Parcial', () async {
+      await prepare(
+        RecordingTransport(
+          (_) => jsonResponse({
+            'results': [_pendencia(status: 'PARCIAL')],
+          }),
+        ),
+      );
+
+      final result = await repository.receivables(77);
+      final pendencia = (result as Ok<List<Receivable>>).value.single;
+
+      expect(pendencia.status, ReceivableStatus.parcial);
+      expect(pendencia.status.label, 'Parcial');
+      expect(pendencia.status.isOutstanding, isTrue);
+    });
+
     test('status que o aplicativo não conhece não quebra a lista', () async {
       // O backend pode ganhar estados antes deste terminal ser atualizado.
       await prepare(
@@ -126,6 +143,23 @@ void main() {
 
       expect(pendencias.totalOutstanding, const Money.fromCents(150000));
       expect(pendencias.outstanding, hasLength(2));
+    });
+
+    test('a parcial entra no total com o que falta', () {
+      // DOMINGOS pagou R$ 100 de R$ 158: a de R$ 58 quitou, a de R$ 100
+      // ficou com R$ 58. Antes do PARCIAL o balcão via R$ 0,00.
+      final pendencias = [
+        _receivable(original: 5800, paid: 5800, pending: 0, status: ReceivableStatus.quitada),
+        _receivable(
+          original: 10000,
+          paid: 4200,
+          pending: 5800,
+          status: ReceivableStatus.parcial,
+        ),
+      ];
+
+      expect(pendencias.totalOutstanding, const Money.fromCents(5800));
+      expect(pendencias.outstanding, hasLength(1));
     });
 
     test('reconhece pendência vencida, que é o caso que importa', () {
