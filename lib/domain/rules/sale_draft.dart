@@ -217,8 +217,14 @@ class SaleDraft {
     // Medido na unidade negociada, e conferido de novo aqui porque o bruto
     // muda: R$ 97,00 cabem em 7% de R$ 1.387,93, mas não no que sobra depois
     // de o vendedor tirar um item da venda.
-    if (discount.exceedsCapOn(_gross)) {
-      found.add(const SaleDraftProblem('O desconto máximo é de 7% (13.3).'));
+    //
+    // TETO DE DESCONTO DESATIVADO (06/11/2026) — ver maxDiscountPercentHundredths.
+    // Para reativar, descomente:
+    // if (discount.exceedsCapOn(_gross)) {
+    //   found.add(const SaleDraftProblem('O desconto máximo é de 7% (13.3).'));
+    // }
+    if (discount.exceedsSaleOn(_gross)) {
+      found.add(const SaleDraftProblem('O desconto não pode passar do valor da venda.'));
     }
     if (discount.isNegative) {
       found.add(const SaleDraftProblem('Desconto não pode ser negativo.'));

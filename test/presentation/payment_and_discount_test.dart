@@ -100,7 +100,8 @@ void main() {
   });
 
   group('desconto (§10)', () {
-    testWidgets('acima de 7% o diálogo avisa e não deixa aplicar',
+    // TETO DE DESCONTO DESATIVADO (06/11/2026): pausado até a regra voltar.
+    testWidgets('acima de 7% o diálogo avisa e não deixa aplicar', skip: true,
         (tester) async {
       await montarVenda(tester);
       await tocar(tester, find.byIcon(Icons.percent));

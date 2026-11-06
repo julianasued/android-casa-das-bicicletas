@@ -66,7 +66,8 @@ void main() {
     expect(draft.warnings, isEmpty);
   });
 
-  test('acima do teto continua sendo problema, não aviso', () {
+  // TETO DE DESCONTO DESATIVADO (06/11/2026): pausado até a regra voltar.
+  test('acima do teto continua sendo problema, não aviso', skip: true, () {
     final draft = comItem()
       ..paymentMethod = PaymentMethod.credito
       ..discountPercentHundredths = 800;

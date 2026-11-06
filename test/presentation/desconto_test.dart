@@ -83,17 +83,27 @@ void main() {
       expect(find.text('SEM DESCONTO'), findsOneWidget);
     });
 
-    testWidgets('os atalhos ficam todos dentro do teto de 7%', (tester) async {
+    testWidgets('os atalhos são 3, 5, 8 e 10%', (tester) async {
       await abrirComVenda(tester);
       await abrirDesconto(tester);
 
-      for (final atalho in ['1%', '2%', '3%', '5%']) {
+      for (final atalho in ['3%', '5%', '8%', '10%']) {
         expect(noDialogo(atalho), findsOneWidget, reason: atalho);
       }
-      // A referência traz 10, 15 e 20 — que o servidor recusaria (13.3).
-      for (final proibido in ['10%', '15%', '20%']) {
-        expect(noDialogo(proibido), findsNothing, reason: proibido);
+      // Os de antes (1 e 2%) saíram com o teto de 7%, desativado em 06/11/2026.
+      for (final antigo in ['1%', '2%']) {
+        expect(noDialogo(antigo), findsNothing, reason: antigo);
       }
+    });
+
+    testWidgets('o atalho de 10% é aplicado — o teto de 7% está desativado', (tester) async {
+      await abrirComVenda(tester);
+      await abrirDesconto(tester);
+
+      await tocar(tester, noDialogo('10%'));
+
+      expect(noDialogo('R\$ 90,00'), findsOneWidget);
+      expect(noDialogo('O desconto não pode passar do valor da venda.'), findsNothing);
     });
 
     testWidgets('o atalho mostra quanto a venda fica', (tester) async {
@@ -120,7 +130,8 @@ void main() {
   });
 
   group('o teto de 7% (13.3)', () {
-    testWidgets('acima do teto avisa e trava o aplicar', (tester) async {
+    // TETO DE DESCONTO DESATIVADO (06/11/2026): pausado até a regra voltar.
+    testWidgets('acima do teto avisa e trava o aplicar', skip: true, (tester) async {
       await abrirComVenda(tester);
       await abrirDesconto(tester);
 
@@ -278,7 +289,8 @@ void main() {
       expect(aplicar(tester).onPressed, isNotNull);
     });
 
-    testWidgets('valor em reais acima do teto avisa e trava', (tester) async {
+    // TETO DE DESCONTO DESATIVADO (06/11/2026): pausado até a regra voltar.
+    testWidgets('valor em reais acima do teto avisa e trava', skip: true, (tester) async {
       await abrirComVenda(tester);
       await abrirDesconto(tester);
       await trocarParaReais(tester);
@@ -443,7 +455,8 @@ void main() {
       expect(aplicar(tester).onPressed, isNotNull);
     });
 
-    testWidgets('um centavo acima do teto trava', (tester) async {
+    // TETO DE DESCONTO DESATIVADO (06/11/2026): pausado até a regra voltar.
+    testWidgets('um centavo acima do teto trava', skip: true, (tester) async {
       await abrirVendaQuebrada(tester);
       await abrirDesconto(tester);
       await trocarParaReais(tester);
