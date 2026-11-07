@@ -24,6 +24,7 @@ import 'package:casa_das_bicicletas/data/session/session_manager.dart';
 import 'package:casa_das_bicicletas/domain/ports/customer_display.dart';
 import 'package:casa_das_bicicletas/domain/repositories/sync_queue.dart';
 import 'package:casa_das_bicicletas/platform/connectivity/connectivity_channel.dart';
+import 'package:casa_das_bicicletas/platform/connectivity/offline_mode.dart';
 import 'package:casa_das_bicicletas/platform/connectivity/sync_scheduler.dart';
 import 'package:casa_das_bicicletas/platform/device/device_channel.dart';
 import 'package:casa_das_bicicletas/platform/printer/printer_channel.dart';
@@ -123,6 +124,10 @@ AppDependencies buildTestDependencies({
   /// O que o canal de rede responde. A tela da fila muda com isto: sem rede,
   /// o botão de enviar não deve nem ficar disponível.
   bool online = true,
+  /// Sem rede, o PDV recebe o pagamento (exige `syncQueue`).
+  bool receiveAtTerminalWhenOffline = false,
+  /// Modo offline ligado ao cliente HTTP, como no grafo de produção.
+  OfflineMode? offlineMode,
 }) {
   TestWidgetsFlutterBinding.ensureInitialized();
   _stubPlatformChannels(online: online);
@@ -137,6 +142,11 @@ AppDependencies buildTestDependencies({
   final session = SessionManager(store);
   final http = transport ?? RecordingTransport.empty();
   final api = ApiClient(environment: environment, session: session, transport: http);
+  if (offlineMode != null) {
+    api
+      ..forcedOffline = (() => offlineMode.isOffline)
+      ..onNetworkFailure = offlineMode.reportNetworkFailure;
+  }
 
   // Uma instância só: `FakeDocumentPrinter` atende os dois contratos, como a
   // `PrinterChannel` de verdade.
@@ -160,6 +170,8 @@ AppDependencies buildTestDependencies({
     device: const DeviceChannel(),
     syncQueue: syncQueue,
     syncScheduler: syncScheduler,
+    receiveAtTerminalWhenOffline: receiveAtTerminalWhenOffline,
+    offlineMode: offlineMode,
   );
 }
 

@@ -142,7 +142,10 @@ class _SellerLoginPageState extends State<SellerLoginPage> {
   /// A tradução é local de propósito: a mensagem do backend é descartada no
   /// mapeamento do 401, e mexer nisso é a pendência registrada no §24 do fluxo.
   Failure _traduzir(Failure failure) => switch (failure) {
-        UnauthenticatedFailure() =>
+        // Só a tradução genérica do 401: a conferência offline já traz texto
+        // próprio, com as tentativas que restam.
+        UnauthenticatedFailure(:final message)
+            when message == const UnauthenticatedFailure().message =>
           const UnauthenticatedFailure('Senha incorreta. Tente de novo.'),
         _ => failure,
       };

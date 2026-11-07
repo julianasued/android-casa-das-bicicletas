@@ -27,6 +27,8 @@ import '../../domain/rules/sale_draft.dart';
 import '../../domain/rules/sale_pricing.dart';
 import '../../domain/usecases/create_sale.dart';
 import '../../platform/connectivity/connectivity_channel.dart';
+import 'offline_payment_page.dart';
+import '../shared/modo_offline.dart';
 import '../shared/brand.dart';
 import '../shared/feedback.dart';
 import 'customer_picker_page.dart';
@@ -228,6 +230,9 @@ class _NewSalePageState extends State<NewSalePage> {
                 subtitle: const Text('Mantém o terminal aberto'),
                 onTap: () => Navigator.of(context).pop('vendedor'),
               ),
+              ItemDoModoOffline(
+                onTap: () => Navigator.of(context).pop('modo-offline'),
+              ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.search),
@@ -274,6 +279,10 @@ class _NewSalePageState extends State<NewSalePage> {
     }
     if (destino == 'descartar') {
       await _confirmDiscard();
+      return;
+    }
+    if (destino == 'modo-offline') {
+      await alternarModoOffline(context);
       return;
     }
     if (destino == 'catalogo') {
@@ -453,6 +462,14 @@ class _NewSalePageState extends State<NewSalePage> {
     navigator.pop();
 
     switch (result) {
+      // Sem internet, com o papel retido: o vendedor escolhe entre receber
+      // aqui e mandar o cliente ao caixa.
+      case Ok(value: final SaleFinished finished) when finished.documentHeld:
+        await navigator.pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => OfflinePaymentPage(finished: finished),
+          ),
+        );
       case Ok(value: final SaleFinished finished):
         await navigator.pushReplacementNamed(
           AppRoutes.saleFinished,
@@ -734,6 +751,16 @@ class _ProductResults extends StatelessWidget {
   Widget build(BuildContext context) {
     if (controller.isSearching && controller.results.isEmpty) {
       return const LoadingView();
+    }
+    // Sem rede e sem o produto no aparelho não é erro da venda: ela continua
+    // pelo valor e categoria, e vai para a fila ao finalizar (§13.9).
+    if (controller.searchFailure is NetworkFailure) {
+      return const EmptyView(
+        icon: Icons.wifi_off,
+        message: 'Sem internet, e este produto ainda não está salvo no '
+            'aparelho.\nLance a venda pelo valor e categoria: ela fica '
+            'guardada e é enviada quando a internet voltar.',
+      );
     }
     if (controller.searchFailure != null) {
       return FailureView(

@@ -24,10 +24,14 @@ class PaymentConfirmedPage extends StatelessWidget {
     required this.sale,
     required this.onNovaVenda,
     required this.onInicio,
+    this.recebidoNoPdv = false,
     super.key,
   });
 
   final Sale sale;
+
+  /// Recebido no próprio PDV, sem internet: a confirmação ainda vai subir.
+  final bool recebidoNoPdv;
 
   /// Continua o balcão: a próxima venda.
   final VoidCallback onNovaVenda;
@@ -38,6 +42,18 @@ class PaymentConfirmedPage extends StatelessWidget {
   /// O que dizer, conforme o que o servidor registrou.
   ({String titulo, String texto, IconData icone}) get _anuncio =>
       switch (sale.status) {
+        SaleStatus.paga when recebidoNoPdv => (
+            titulo: 'RECEBIDO NO PDV',
+            texto: 'Sem internet: a venda e o pagamento sobem quando a conexão '
+                'voltar.',
+            icone: Icons.check_circle,
+          ),
+        SaleStatus.pendenteNotinha when recebidoNoPdv => (
+            titulo: 'ENTREGA CONFIRMADA',
+            texto: 'Venda em notinha: o valor fica em aberto. Sobe quando a '
+                'conexão voltar.',
+            icone: Icons.assignment_turned_in,
+          ),
         SaleStatus.paga => (
             titulo: 'PAGAMENTO CONFIRMADO',
             texto: 'Venda finalizada com sucesso.',

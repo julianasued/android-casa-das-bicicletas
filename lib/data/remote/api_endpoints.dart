@@ -6,6 +6,7 @@ class ApiEndpoints {
   const ApiEndpoints._();
 
   // §2 — autenticação e sessão
+  static const String health = 'health/';
   static const String terminalAuth = 'auth/terminal/';
   static const String terminalSellers = 'auth/terminal/sellers/';
   static const String selectSeller = 'auth/select-seller/';

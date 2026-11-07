@@ -33,17 +33,21 @@ const String pendingReferenceLabel = 'AGUARDANDO SINCRONIZACAO';
 
 /// Monta o documento 1 a partir do que o terminal sabe.
 ///
-/// Devolve `null` quando falta o mínimo para um cupom se identificar — hoje, o
-/// nome da loja. Um papel sem isso não diz de quem é a venda, e imprimir seria
-/// pior que não imprimir.
-PrintedDocument? offlineDocument1({
+/// Nunca recusa: sem rede, a venda tem de seguir (§13.9). Quando o terminal
+/// ainda não aprendeu o nome da loja — aparelho recém-instalado, que nunca
+/// vendeu com rede —, o cabeçalho sai com o código da loja. O código de barras,
+/// que é o que o caixa lê, vale do mesmo jeito.
+PrintedDocument offlineDocument1({
   required SaleDraft draft,
   required TerminalIdentity identity,
   required Seller seller,
   required String storeCode,
   DateTime? occurredAt,
 }) {
-  if (!identity.canPrintOffline) return null;
+  final codigoDaLoja = identity.storeCode ?? storeCode;
+  final nomeDaLoja = identity.canPrintOffline
+      ? identity.storeName!
+      : 'CASA DAS BICICLETAS - LOJA $codigoDaLoja';
 
   final quando = occurredAt ?? DateTime.now();
   final totals = draft.totals;
@@ -61,13 +65,13 @@ PrintedDocument? offlineDocument1({
     printedAt: quando,
     printedByName: seller.name,
 
-    storeCode: identity.storeCode ?? storeCode,
-    storeName: identity.storeName ?? '',
+    storeCode: codigoDaLoja,
+    storeName: nomeDaLoja,
     storeDocument: identity.storeDocument ?? '',
     storeAddress: identity.storeAddress ?? '',
 
     // Este vale: mesma regra do backend, a partir do uuid do terminal.
-    saleBarcode: draft.barcodeFor(identity.storeCode ?? storeCode),
+    saleBarcode: draft.barcodeFor(codigoDaLoja),
     saleOccurredAt: quando,
 
     paymentMethodLabel: draft.paymentMethod.label,

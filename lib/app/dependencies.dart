@@ -13,6 +13,7 @@ import '../core/env.dart';
 import '../data/local/local_database.dart';
 import '../data/local/operation_queue.dart';
 import '../domain/repositories/sync_queue.dart';
+import '../domain/entities/terminal_identity.dart';
 import '../domain/rules/offline_sale_context.dart';
 import '../data/repositories/sync_repository_impl.dart';
 import '../domain/usecases/pull_reference_data.dart';
@@ -25,6 +26,7 @@ import '../data/repositories/auth_repository_impl.dart';
 import '../data/repositories/catalog_repository_impl.dart';
 import '../data/repositories/customer_repository_impl.dart';
 import '../data/repositories/sale_repository_impl.dart';
+import '../data/session/offline_pin_store.dart';
 import '../data/session/secure_store.dart';
 import '../data/session/session_manager.dart';
 import '../domain/ports/barcode_scanner.dart';
@@ -38,9 +40,11 @@ import '../domain/usecases/check_payment.dart';
 import '../domain/usecases/create_sale.dart';
 import '../domain/usecases/find_sale_by_barcode.dart';
 import '../domain/usecases/open_terminal.dart';
+import '../domain/usecases/receive_offline_payment.dart';
 import '../domain/usecases/reprint_document.dart';
 import '../domain/usecases/select_seller.dart';
 import '../platform/connectivity/connectivity_channel.dart';
+import '../platform/connectivity/offline_mode.dart';
 import '../platform/device/device_channel.dart';
 import '../platform/display/customer_display_channel.dart';
 import '../platform/printer/printer_channel.dart';
@@ -50,9 +54,9 @@ import '../platform/secure_store/secure_store_channel.dart';
 
 /// Junta sessão, identidade aprendida e serialização para a venda sem rede.
 ///
-/// Devolve `null` quando falta o que não se inventa — vendedor logado, código da
-/// loja, ou identidade aprendida. Aí a falha de rede segue seu caminho, e o
-/// vendedor sabe que não deu.
+/// Devolve `null` quando falta o que não se inventa — vendedor logado ou loja
+/// configurada. Sem identidade aprendida (nome, CNPJ, endereço), a venda segue
+/// mesmo assim: o documento sai com o código da loja.
 Future<OfflineSaleContext?> _offlineContextFrom({
   required ReferenceCache cache,
   required SessionManager session,
@@ -63,8 +67,8 @@ Future<OfflineSaleContext?> _offlineContextFrom({
   final storeId = session.storeId;
   if (seller == null || storeCode == null || storeId == null) return null;
 
-  final identity = await cache.identity();
-  if (identity == null) return null;
+  final identity = await cache.identity() ??
+      TerminalIdentity(storeCode: storeCode, learnedAt: DateTime.now());
 
   return OfflineSaleContext(
     identity: identity,
@@ -95,7 +99,12 @@ class AppDependencies {
     this.syncQueue,
     this.referenceCache,
     this.syncScheduler,
+    this.offlineMode,
+    bool receiveAtTerminalWhenOffline = false,
   })  : openTerminal = OpenTerminal(auth),
+        receiveOfflinePayment = syncQueue == null || !receiveAtTerminalWhenOffline
+            ? null
+            : ReceiveOfflinePayment(queue: syncQueue, printer: printer),
         selectSeller = SelectSeller(auth),
         createSale = CreateSale(
           sales: sales,
@@ -103,6 +112,9 @@ class AppDependencies {
           queue: syncQueue,
           // Lido na hora da venda, e não aqui: a identidade é aprendida ao longo
           // do uso, e o grafo é montado antes da primeira venda.
+          // Recebendo no PDV, o papel da venda offline espera a escolha do
+          // vendedor: comprovante de retirada ou encaminhamento ao caixa.
+          holdOfflineDocument: receiveAtTerminalWhenOffline && syncQueue != null,
           offlineContext: syncQueue == null || referenceCache == null
               ? null
               : () => _offlineContextFrom(
@@ -115,6 +127,9 @@ class AppDependencies {
         findSaleByBarcode = FindSaleByBarcode(sales),
         checkPayment = CheckPayment(sales);
 
+  /// Recebimento no próprio PDV quando não há internet. Ausente sem fila.
+  final ReceiveOfflinePayment? receiveOfflinePayment;
+
   /// A fila de operações pendentes (RF35). Ausente nos testes que não precisam
   /// de banco, e aí a venda offline simplesmente não acontece.
   final SyncQueue? syncQueue;
@@ -125,6 +140,10 @@ class AppDependencies {
   /// Quem manda a fila ao servidor quando a rede volta (§13.10). Ausente nos
   /// testes que não precisam de sincronização.
   final SyncScheduler? syncScheduler;
+
+  /// Modo offline: com ele ligado, nada vai ao servidor (ver `OfflineMode`).
+  /// Ausente nos testes que não tratam disso — aí o app sempre tenta a rede.
+  final OfflineMode? offlineMode;
 
   /// Grafo real do terminal: canais nativos e HTTP de verdade.
   factory AppDependencies.production({AppEnvironment? environment}) {
@@ -149,6 +168,14 @@ class AppDependencies {
     final fila = OperationQueue(banco);
     final connectivity = ConnectivityChannel();
 
+    // Ligado, nada sai para a rede: cada ação vai direto ao aparelho, na hora,
+    // em vez de esperar o tempo-limite de uma internet que caiu.
+    final modoOffline = OfflineMode(connectivity: connectivity, store: secureStore);
+    api
+      ..forcedOffline = (() => modoOffline.isOffline)
+      ..onNetworkFailure = modoOffline.reportNetworkFailure;
+    modoOffline.probe = api.isServerReachable;
+
     // A fila enche sozinha, mas não esvazia sozinha: este é o gatilho.
     final sincronizacao = SyncRepositoryImpl(api);
     final scheduler = SyncScheduler(
@@ -161,7 +188,18 @@ class AppDependencies {
       // busca online filtra ativos e nunca traria de volta um produto
       // desativado no servidor (RF34).
       pull: PullReferenceData(sync: sincronizacao, cache: cache),
+      offlineMode: modoOffline,
     );
+
+    // A senha conferida no aparelho quando não há internet, e a troca dessa
+    // sessão por uma do servidor quando a rede volta.
+    final auth = AuthRepositoryImpl(
+      api: api,
+      session: session,
+      cache: cache,
+      offlinePins: OfflinePinStore(secureStore),
+    );
+    session.renewer = auth.renewOfflineSession;
 
     return AppDependencies(
       environment: env,
@@ -169,7 +207,7 @@ class AppDependencies {
       session: session,
       transport: transport,
       apiClient: api,
-      auth: AuthRepositoryImpl(api: api, session: session, cache: cache),
+      auth: auth,
       catalog: CatalogRepositoryImpl(api, cache: cache),
       customers: CustomerRepositoryImpl(api, cache: cache),
       sales: SaleRepositoryImpl(api, cache: cache),
@@ -182,6 +220,8 @@ class AppDependencies {
       syncQueue: fila,
       referenceCache: cache,
       syncScheduler: scheduler,
+      receiveAtTerminalWhenOffline: true,
+      offlineMode: modoOffline,
     );
   }
 
@@ -217,6 +257,7 @@ class AppDependencies {
 
   void dispose() {
     transport.close();
+    offlineMode?.dispose();
     connectivity.dispose();
     session.dispose();
   }
