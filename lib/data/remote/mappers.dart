@@ -312,9 +312,15 @@ PrintedDocument printedDocumentFromJson(Map<String, Object?> json) {
   );
 }
 
-/// Resposta de `POST /sales/`: a venda e, junto, o documento 1 (RF08).
+/// Resposta de `POST /sales/`: a venda e, junto, o documento a imprimir (RF08).
+///
+/// A notinha não passa pelo caixa (10/11/2026): nasce confirmada e a resposta
+/// traz também o documento 2, o comprovante de retirada — é ele que sai, no
+/// lugar do "leve ao caixa". Sem ele (as outras formas, ou um servidor ainda
+/// antigo), vale o documento 1 de sempre.
 SaleWithDocument saleWithDocumentFromJson(Map<String, Object?> json) {
-  final rawDocument = json['document_1'];
+  final retirada = json['document_2'];
+  final rawDocument = retirada is Map<String, Object?> ? retirada : json['document_1'];
   return SaleWithDocument(
     sale: saleFromJson(json),
     document: rawDocument is Map<String, Object?> ? printedDocumentFromJson(rawDocument) : null,

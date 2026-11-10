@@ -116,6 +116,10 @@ class AppDependencies {
           // Recebendo no PDV, o papel da venda offline espera a escolha do
           // vendedor: comprovante de retirada ou encaminhamento ao caixa.
           holdOfflineDocument: receiveAtTerminalWhenOffline && syncQueue != null,
+          // A notinha não passa pelo caixa (10/11/2026): sem rede, a entrega
+          // se confirma aqui, receba o PDV pagamento offline ou não.
+          confirmOfflineNotinha:
+              syncQueue == null ? null : ReceiveOfflinePayment(queue: syncQueue, printer: printer),
           offlineContext: syncQueue == null || referenceCache == null
               ? null
               : () => _offlineContextFrom(
