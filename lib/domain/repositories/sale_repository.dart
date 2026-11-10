@@ -21,6 +21,12 @@ abstract interface class SaleRepository {
 
   Future<Result<Sale>> findById(int saleId);
 
+  /// O vendedor cancela a própria venda enquanto ela aguarda o caixa.
+  ///
+  /// Sem PIN: não entrou dinheiro nem saiu mercadoria. Depois de paga, o
+  /// servidor recusa (422) e diz que o cancelamento é no computador.
+  Future<Result<void>> cancelOwn(int saleId, {required String reason});
+
   /// Reimpressão auditável (§3.4.3): cada via sai numerada.
   Future<Result<PrintedDocument>> reprintDocument(int saleId, DocumentType type);
 }
