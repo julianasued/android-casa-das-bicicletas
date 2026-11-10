@@ -31,8 +31,8 @@ import '../../domain/entities/printed_document.dart';
 import '../../domain/entities/sale.dart';
 import '../../domain/usecases/create_sale.dart';
 import '../receipt/receipt_page.dart';
+import 'cancelar_venda_dialog.dart';
 import '../shared/brand.dart';
-import 'payment_confirmed_page.dart';
 import '../shared/confirmacao_do_vendedor.dart';
 import '../shared/feedback.dart';
 
@@ -66,6 +66,9 @@ class _Cor {
 
   static const Color vermelhoFundo = Color(0xFF7A1F1F);
   static const Color vermelhoBorda = Color(0xFFE23B3B);
+  static const Color vermelhoClaro = Color(0xFFFDECEC);
+  static const Color vermelhoSombra = Color(0xFFF2C4C4);
+  static const Color vermelhoRotulo = Color(0xFF8A1C1C);
 
   /// Cores por categoria, as mesmas da montagem da venda.
   static Color categoria(String code) => switch (code) {
@@ -87,7 +90,10 @@ class SaleFinishedPage extends StatefulWidget {
 
 class _SaleFinishedPageState extends State<SaleFinishedPage> {
   bool _reprinting = false;
-  bool _conferindo = false;
+  bool _cancelando = false;
+
+  /// Cancelada nesta tela: some o cancelar e a reimpressão, e a faixa diz.
+  bool _cancelada = false;
   late bool _printed = widget.finished.printed;
 
   /// Qual via está na mão do cliente.
@@ -123,7 +129,8 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
     if (widget.finished.awaitsSync) {
       // A venda pode ter subido entre a impressão e esta tela abrir — o
       // agendador tenta a cada cinco minutos e na volta da rede.
-      WidgetsBinding.instance.addPostFrameCallback((_) => _verificarSincronizacao());
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _verificarSincronizacao());
     }
   }
 
@@ -156,46 +163,35 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
     });
   }
 
-  /// Pergunta ao servidor se o caixa já recebeu esta venda (RF10–RF12).
+  /// O vendedor cancela a própria venda, sem PIN (09/11/2026).
   ///
-  /// É leitura pura: o terminal do vendedor não recebe pagamento, quem recebe
-  /// é o caixa. Tocar duas vezes não duplica recebimento nem cria uma segunda
-  /// venda — e é justamente por isso que o vendedor pode conferir à vontade,
-  /// com o cliente esperando no balcão.
-  Future<void> _conferirPagamento() async {
-    if (_conferindo) return;
+  /// Ficou no lugar do "conferir pagamento". Só vale enquanto a venda aguarda
+  /// o caixa: depois de paga, o servidor recusa e a mensagem dele diz que o
+  /// cancelamento é no computador, com o PIN do Dono ou do Gerente.
+  Future<void> _cancelarVenda() async {
+    if (_cancelando || _cancelada) return;
+
+    final motivo = await pedirMotivoDoCancelamento(context, sale: _sale);
+    if (!mounted || motivo == null) return;
 
     final deps = context.deps;
-    final navigator = Navigator.of(context);
-    setState(() => _conferindo = true);
-
-    final resultado = await deps.checkPayment(_idNoServidor);
-
+    setState(() => _cancelando = true);
+    final resultado = await deps.cancelOwnSale(_idNoServidor, reason: motivo);
     if (!mounted) return;
-    setState(() => _conferindo = false);
+    setState(() => _cancelando = false);
 
     switch (resultado) {
-      case Ok(:final Sale value) when value.status.isConfirmed:
-        // Rota direta, e não nomeada: a tela exige a venda, e o construtor
-        // garante isso melhor do que um `is` em tempo de execução.
-        await navigator.push(
-          MaterialPageRoute<void>(
-            builder: (_) => PaymentConfirmedPage(
-              sale: value,
-              onNovaVenda: _novaVenda,
-              onInicio: _inicio,
-            ),
-          ),
-        );
-      case Ok(:final Sale value) when value.status.awaitsCashier:
+      case Ok():
+        setState(() => _cancelada = true);
+        showMessage(context, 'Venda cancelada. Recolha o papel do cliente.');
+      // Resposta perdida: pode ter cancelado. Repetir é seguro — o servidor
+      // devolve o mesmo cancelamento em vez de erro.
+      case Err(failure: NetworkFailure()):
         showMessage(
           context,
-          'Ainda não foi recebida no caixa. Peça ao cliente para passar lá.',
+          'Não deu para confirmar o cancelamento. Toque em CANCELAR VENDA de '
+          'novo: se já foi cancelada, nada se repete.',
         );
-      case Ok(:final Sale value):
-        // Cancelada, em alteração, devolvida: o que se diz é o que o servidor
-        // registrou, nunca uma frase de sucesso.
-        showMessage(context, 'Situação da venda: ${value.status.label}.');
       case Err(:final failure):
         showFailure(context, failure);
     }
@@ -359,8 +355,9 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
                               onReimprimir: _reprint,
                               onInicio: _inicio,
                               onNovaVenda: _novaVenda,
-                              onConferirPagamento: _conferirPagamento,
-                              conferindo: _conferindo,
+                              onCancelar: _cancelarVenda,
+                              cancelando: _cancelando,
+                              cancelada: _cancelada,
                               ida: _ida,
                               onVerificar: _verificarSincronizacao,
                             )
@@ -372,8 +369,9 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
                               onReimprimir: _reprint,
                               onInicio: _inicio,
                               onNovaVenda: _novaVenda,
-                              onConferirPagamento: _conferirPagamento,
-                              conferindo: _conferindo,
+                              onCancelar: _cancelarVenda,
+                              cancelando: _cancelando,
+                              cancelada: _cancelada,
                               ida: _ida,
                               onVerificar: _verificarSincronizacao,
                             );
@@ -627,8 +625,9 @@ class _CorpoLargo extends StatelessWidget {
     required this.onReimprimir,
     required this.onInicio,
     required this.onNovaVenda,
-    required this.onConferirPagamento,
-    required this.conferindo,
+    required this.onCancelar,
+    required this.cancelando,
+    required this.cancelada,
     required this.ida,
     required this.onVerificar,
   });
@@ -640,8 +639,9 @@ class _CorpoLargo extends StatelessWidget {
   final VoidCallback onReimprimir;
   final VoidCallback onInicio;
   final VoidCallback onNovaVenda;
-  final VoidCallback onConferirPagamento;
-  final bool conferindo;
+  final VoidCallback onCancelar;
+  final bool cancelando;
+  final bool cancelada;
   final _IdaAoServidor ida;
   final VoidCallback onVerificar;
 
@@ -679,7 +679,7 @@ class _CorpoLargo extends StatelessWidget {
                           idNoServidor: ida.idNoServidor,
                         ),
                         const SizedBox(height: 12),
-                        _FaixaDaSituacao(sale: sale),
+                        _FaixaDaSituacao(sale: sale, cancelada: cancelada),
                         if (finished.awaitsSync) ...[
                           const SizedBox(height: 12),
                           _FaixaDaFila(ida: ida, onVerificar: onVerificar),
@@ -695,17 +695,18 @@ class _CorpoLargo extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                _BotaoDeConferirPagamento(
-                  ocupado: conferindo,
+                _BotaoDeCancelar(
+                  ocupado: cancelando,
+                  cancelada: cancelada,
                   habilitado: ida.concluida,
-                  onPressed: onConferirPagamento,
+                  onPressed: onCancelar,
                 ),
                 const SizedBox(height: 10),
                 _BotaoDeReimpressao(
                   via: via,
                   impresso: impresso,
                   ocupado: reimprimindo,
-                  habilitado: ida.concluida,
+                  habilitado: ida.concluida && !cancelada,
                   onPressed: onReimprimir,
                 ),
                 if (finished.result.document case final documento?) ...[
@@ -762,8 +763,9 @@ class _CorpoEstreito extends StatelessWidget {
     required this.onReimprimir,
     required this.onInicio,
     required this.onNovaVenda,
-    required this.onConferirPagamento,
-    required this.conferindo,
+    required this.onCancelar,
+    required this.cancelando,
+    required this.cancelada,
     required this.ida,
     required this.onVerificar,
   });
@@ -775,8 +777,9 @@ class _CorpoEstreito extends StatelessWidget {
   final VoidCallback onReimprimir;
   final VoidCallback onInicio;
   final VoidCallback onNovaVenda;
-  final VoidCallback onConferirPagamento;
-  final bool conferindo;
+  final VoidCallback onCancelar;
+  final bool cancelando;
+  final bool cancelada;
   final _IdaAoServidor ida;
   final VoidCallback onVerificar;
 
@@ -798,7 +801,7 @@ class _CorpoEstreito extends StatelessWidget {
                   compacto: true,
                 ),
                 const SizedBox(height: 10),
-                _FaixaDaSituacao(sale: sale),
+                _FaixaDaSituacao(sale: sale, cancelada: cancelada),
                 if (finished.awaitsSync) ...[
                   const SizedBox(height: 10),
                   _FaixaDaFila(ida: ida, onVerificar: onVerificar),
@@ -810,17 +813,18 @@ class _CorpoEstreito extends StatelessWidget {
                   notinha: sale.paymentMethod.requiresCustomer,
                 ),
                 const SizedBox(height: 10),
-                _BotaoDeConferirPagamento(
-                  ocupado: conferindo,
+                _BotaoDeCancelar(
+                  ocupado: cancelando,
+                  cancelada: cancelada,
                   habilitado: ida.concluida,
-                  onPressed: onConferirPagamento,
+                  onPressed: onCancelar,
                 ),
                 const SizedBox(height: 10),
                 _BotaoDeReimpressao(
                   via: via,
                   impresso: impresso,
                   ocupado: reimprimindo,
-                  habilitado: ida.concluida,
+                  habilitado: ida.concluida && !cancelada,
                   onPressed: onReimprimir,
                 ),
                 if (finished.result.document case final documento?) ...[
@@ -983,12 +987,25 @@ class _CartaoDeSucesso extends StatelessWidget {
 /// notinha o estado é outro, e escrever "aguardando caixa" ali seria mentira.
 /// Em nenhum caminho a tela chama a venda de paga — quem paga é o caixa.
 class _FaixaDaSituacao extends StatelessWidget {
-  const _FaixaDaSituacao({required this.sale});
+  const _FaixaDaSituacao({required this.sale, required this.cancelada});
 
   final Sale sale;
+  final bool cancelada;
 
   @override
   Widget build(BuildContext context) {
+    if (cancelada) {
+      return const _Faixa(
+        icone: Icons.cancel_outlined,
+        rotulo: 'SITUAÇÃO',
+        valor: 'Cancelada',
+        fundo: _Cor.vermelhoClaro,
+        borda: _Cor.vermelhoBorda,
+        sombra: _Cor.vermelhoSombra,
+        corDoRotulo: _Cor.vermelhoRotulo,
+        corDoValor: _Cor.vermelhoRotulo,
+      );
+    }
     return _Faixa(
       icone: Icons.schedule,
       rotulo: 'SITUAÇÃO',
@@ -1015,19 +1032,19 @@ class _FaixaDaFila extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Enquanto a venda não existe no servidor, "conferir pagamento" e
+    // Enquanto a venda não existe no servidor, "cancelar venda" e
     // "reimprimir" não têm o que consultar — e dizer isso é o que substitui o
     // `404` que elas traziam com o cliente no balcão (OFF-013).
     final (valor, apoio) = switch (ida) {
       _IdaAoServidor(concluida: true) => (
           'Enviada ao servidor',
-          'Já subiu: conferir pagamento e reimprimir com o número definitivo '
+          'Já subiu: cancelar e reimprimir com o número definitivo '
               'estão disponíveis.',
         ),
       _IdaAoServidor(situacao: SyncStatus.conflitante) => (
           'Travou na sincronização',
           'Precisa de decisão do gerente ou do dono. Enquanto isso o documento '
-              'vale no caixa; conferir pagamento e reimprimir não.',
+              'vale no caixa; cancelar e reimprimir não.',
         ),
       _IdaAoServidor(situacao: SyncStatus.erro) => (
           'O servidor recusou o envio',
@@ -1037,7 +1054,7 @@ class _FaixaDaFila extends StatelessWidget {
       _ => (
           'Registrada no terminal, ainda não enviada',
           'A venda sobe sozinha quando a conexão voltar, e o documento já vale '
-              'no caixa. Conferir pagamento e reimprimir só depois que ela '
+              'no caixa. Cancelar e reimprimir só depois que ela '
               'subir — é de lá que vem o número.',
         ),
     };
@@ -1048,7 +1065,9 @@ class _FaixaDaFila extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _Faixa(
-          icone: concluida ? Icons.cloud_done_outlined : Icons.cloud_upload_outlined,
+          icone: concluida
+              ? Icons.cloud_done_outlined
+              : Icons.cloud_upload_outlined,
           rotulo: 'SINCRONIZAÇÃO',
           valor: valor,
           apoio: apoio,
@@ -1313,52 +1332,66 @@ class _TextoDoDocumento extends StatelessWidget {
 /// Secundário quando o papel saiu; em destaque quando não saiu — ali é a ação
 /// que resolve o balcão. O número da via vem do documento registrado, e não de
 /// um contador da tela.
-/// Pergunta ao servidor se o caixa já recebeu a venda.
+/// Cancela a venda (09/11/2026) — no lugar do antigo "conferir pagamento".
 ///
-/// Fica acima da reimpressão porque é a pergunta que o cliente faz de volta no
-/// balcão — "deu certo?" —, e é a que precisa de menos toques para responder.
-class _BotaoDeConferirPagamento extends StatelessWidget {
-  const _BotaoDeConferirPagamento({
+/// Fica acima da reimpressão, no mesmo lugar: é a ação que o balcão pede
+/// quando o cliente desiste ou a venda saiu errada. Em vermelho só no
+/// contorno, para não competir com NOVA VENDA.
+class _BotaoDeCancelar extends StatelessWidget {
+  const _BotaoDeCancelar({
     required this.ocupado,
+    required this.cancelada,
     required this.habilitado,
     required this.onPressed,
   });
 
   final bool ocupado;
+  final bool cancelada;
 
-  /// Falso enquanto a venda não existe no servidor: não há o que consultar
+  /// Falso enquanto a venda não existe no servidor: não há o que cancelar lá
   /// (OFF-013). A faixa da sincronização é quem diz o porquê.
   final bool habilitado;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
+    final ativo = habilitado && !ocupado && !cancelada;
+
     return SizedBox(
       height: 72,
       child: OutlinedButton.icon(
-        onPressed: (ocupado || !habilitado) ? null : onPressed,
+        key: const Key('cancelar-venda'),
+        onPressed: ativo ? onPressed : null,
         icon: ocupado
             ? const SizedBox(
                 width: 22,
                 height: 22,
                 child: CircularProgressIndicator(strokeWidth: 3),
               )
-            : const Icon(Icons.price_check, size: 26, color: _Cor.texto),
+            : Icon(
+                Icons.cancel_outlined,
+                size: 26,
+                color: ativo ? _Cor.vermelhoBorda : _Cor.rotulo,
+              ),
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, 72),
           backgroundColor: _Cor.cartao,
-          side: const BorderSide(color: _Cor.borda, width: 2),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          side: BorderSide(
+            color: ativo ? _Cor.vermelhoBorda : _Cor.borda,
+            width: 2,
+          ),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
-        label: const FittedBox(
+        label: FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
-            'CONFERIR PAGAMENTO',
+            cancelada ? 'VENDA CANCELADA' : 'CANCELAR VENDA',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
               letterSpacing: .4,
-              color: _Cor.texto,
+              color: ativo ? _Cor.vermelhoRotulo : _Cor.rotulo,
             ),
           ),
         ),
@@ -1464,12 +1497,14 @@ class _BotaoDeComprovante extends StatelessWidget {
           backgroundColor: _Cor.cartao,
           foregroundColor: _Cor.texto,
           side: const BorderSide(color: _Cor.borda, width: 2),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
         icon: const Icon(Icons.receipt_long_outlined, size: 22),
         label: const Text(
           'VER COMPROVANTE',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: .6),
+          style: TextStyle(
+              fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: .6),
         ),
       ),
     );

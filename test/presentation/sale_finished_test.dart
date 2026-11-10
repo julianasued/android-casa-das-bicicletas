@@ -274,13 +274,13 @@ void main() {
       // `/sales/0/` — 404 com o cliente no balcão (OFF-013).
       await montar(tester, desfechoNaFila(), fila: _FilaDaVenda());
 
-      final conferir = tester.widget<OutlinedButton>(
+      final cancelar = tester.widget<OutlinedButton>(
         find.ancestor(
-          of: find.text('CONFERIR PAGAMENTO'),
+          of: find.text('CANCELAR VENDA'),
           matching: find.byType(OutlinedButton),
         ),
       );
-      expect(conferir.onPressed, isNull);
+      expect(cancelar.onPressed, isNull);
       expect(
         find.textContaining('só depois que ela subir'),
         findsOneWidget,
@@ -302,13 +302,13 @@ void main() {
       expect(find.text('Enviada ao servidor'), findsOneWidget);
       expect(find.textContaining('Venda #10490'), findsOneWidget);
 
-      final conferir = tester.widget<OutlinedButton>(
+      final cancelar = tester.widget<OutlinedButton>(
         find.ancestor(
-          of: find.text('CONFERIR PAGAMENTO'),
+          of: find.text('CANCELAR VENDA'),
           matching: find.byType(OutlinedButton),
         ),
       );
-      expect(conferir.onPressed, isNotNull);
+      expect(cancelar.onPressed, isNotNull);
     });
 
     testWidgets('JÁ SUBIU? relê a fila e libera as ações', (tester) async {
@@ -364,8 +364,8 @@ void main() {
         fila: _FilaDaVenda(),
       );
 
-      await rolarAte(tester, find.text('CONFERIR PAGAMENTO'));
-      await tester.tap(find.text('CONFERIR PAGAMENTO'), warnIfMissed: false);
+      await rolarAte(tester, find.text('CANCELAR VENDA'));
+      await tester.tap(find.text('CANCELAR VENDA'), warnIfMissed: false);
       await tester.pumpAndSettle();
 
       expect(transporte.requests, isEmpty);

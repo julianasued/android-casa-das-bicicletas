@@ -117,6 +117,17 @@ class SaleRepositoryImpl implements SaleRepository {
   }
 
   @override
+  Future<Result<void>> cancelOwn(int saleId, {required String reason}) async {
+    // Sem chave de idempotência: o servidor já reconhece o reenvio — a venda
+    // cancelada por esta mesma pessoa devolve o cancelamento, não erro.
+    final response = await _api.post(
+      ApiEndpoints.cancelOwnSale(saleId),
+      body: {'reason': reason},
+    );
+    return mapApiResponse(response, (_) {});
+  }
+
+  @override
   Future<Result<PrintedDocument>> reprintDocument(
     int saleId,
     DocumentType type,

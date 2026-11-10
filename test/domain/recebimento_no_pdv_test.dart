@@ -55,6 +55,10 @@ class _SemRede implements SaleRepository {
   Future<Result<Sale>> findById(int saleId) => throw UnimplementedError();
 
   @override
+  Future<Result<void>> cancelOwn(int saleId, {required String reason}) =>
+      throw UnimplementedError();
+
+  @override
   Future<Result<PrintedDocument>> reprintDocument(int saleId, DocumentType type) =>
       throw UnimplementedError();
 
