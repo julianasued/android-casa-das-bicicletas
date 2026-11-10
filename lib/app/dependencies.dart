@@ -36,6 +36,7 @@ import '../domain/repositories/auth_repository.dart';
 import '../domain/repositories/catalog_repository.dart';
 import '../domain/repositories/customer_repository.dart';
 import '../domain/repositories/sale_repository.dart';
+import '../domain/usecases/cancel_own_sale.dart';
 import '../domain/usecases/check_payment.dart';
 import '../domain/usecases/create_sale.dart';
 import '../domain/usecases/find_sale_by_barcode.dart';
@@ -125,7 +126,8 @@ class AppDependencies {
         ),
         reprintDocument = ReprintDocument(sales: sales, printer: printer),
         findSaleByBarcode = FindSaleByBarcode(sales),
-        checkPayment = CheckPayment(sales);
+        checkPayment = CheckPayment(sales),
+        cancelOwnSale = CancelOwnSale(sales);
 
   /// Recebimento no próprio PDV quando não há internet. Ausente sem fila.
   final ReceiveOfflinePayment? receiveOfflinePayment;
@@ -254,6 +256,7 @@ class AppDependencies {
 
   /// Confere se o caixa já recebeu a venda — leitura, nunca recebimento.
   final CheckPayment checkPayment;
+  final CancelOwnSale cancelOwnSale;
 
   void dispose() {
     transport.close();

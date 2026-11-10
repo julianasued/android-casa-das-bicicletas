@@ -32,6 +32,9 @@ class ApiEndpoints {
   static String customerReceivables(int customerId) => 'customers/$customerId/receivables/';
 
   static String saleByBarcode(String barcode) => 'sales/by-barcode/$barcode/';
+
+  /// O vendedor cancela a própria venda, antes do caixa, sem PIN (09/11/2026).
+  static String cancelOwnSale(int saleId) => 'sales/$saleId/cancel-own/';
   static String printDocument1(int saleId) => 'sales/$saleId/document-1/print/';
   static String printDocument2(int saleId) => 'sales/$saleId/document-2/print/';
 }
