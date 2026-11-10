@@ -13,6 +13,11 @@
 /// para o caixa, que consegue ler o código de barras — esse é calculado do
 /// `uuid` local pela mesma regra do backend, e vale desde já.
 ///
+/// **Notinha não passa pelo caixa** (10/11/2026). Com rede, o servidor a
+/// devolve já confirmada, com o comprovante de retirada, e é ele que sai. Sem
+/// rede, a entrega é confirmada aqui mesmo ([ReceiveOfflinePayment], sem
+/// pagamento) e sai o comprovante provisório — nada de "leve ao caixa".
+///
 /// **Só falha de rede vira fila.** Recusa do servidor — desconto acima do teto,
 /// produto inativo, permissão — é resposta legítima e precisa chegar ao
 /// vendedor, que pode corrigir. Enfileirar um `422` faria a venda "dar certo" no
@@ -21,6 +26,7 @@ library;
 
 import '../../core/failure.dart';
 import '../../core/result.dart';
+import '../entities/payment_method.dart';
 import '../entities/printed_document.dart';
 import '../ports/document_printer.dart';
 import '../repositories/sale_repository.dart';
@@ -28,6 +34,7 @@ import '../repositories/sync_queue.dart';
 import '../rules/offline_document.dart';
 import '../rules/offline_sale_context.dart';
 import '../rules/sale_draft.dart';
+import 'receive_offline_payment.dart';
 
 /// Desfecho da finalização: o que foi registrado e o que aconteceu com o papel.
 class SaleFinished {
@@ -86,11 +93,20 @@ class CreateSale {
     SyncQueue? queue,
     Future<OfflineSaleContext?> Function()? offlineContext,
     bool holdOfflineDocument = false,
+    ReceiveOfflinePayment? confirmOfflineNotinha,
   })  : _sales = sales,
         _printer = printer,
         _queue = queue,
         _offlineContext = offlineContext,
-        _holdOfflineDocument = holdOfflineDocument;
+        _holdOfflineDocument = holdOfflineDocument,
+        _confirmOfflineNotinha = confirmOfflineNotinha;
+
+  /// Confirma a entrega da notinha feita sem rede e imprime o comprovante.
+  ///
+  /// A confirmação vai para a fila junto com a venda. O servidor de hoje já
+  /// confirma a notinha ao recebê-la, e a da fila chega como reenvio; o de
+  /// antes precisava dela — por isso ela continua indo.
+  final ReceiveOfflinePayment? _confirmOfflineNotinha;
 
   /// Sem rede, não imprime o documento 1 na hora: a tela de recebimento no PDV
   /// decide entre ele e o comprovante de retirada.
@@ -175,6 +191,9 @@ class CreateSale {
     // em lugar nenhum é o pior desfecho possível.
     await fila.enqueue(contexto.operationFor(draft, document.saleOccurredAt));
 
+    final notinha = await _confirmarNotinha(draft, contexto, document);
+    if (notinha != null) return Ok(notinha);
+
     final printed = _holdOfflineDocument
         ? const Ok<void>(null)
         : await _printer.printDocument(document);
@@ -192,5 +211,37 @@ class CreateSale {
         documentHeld: _holdOfflineDocument,
       ),
     );
+  }
+
+  /// A notinha offline sai confirmada, com o comprovante provisório.
+  ///
+  /// `null` quando não é notinha, ou não há como confirmar aqui — aí segue o
+  /// caminho de sempre.
+  Future<SaleFinished?> _confirmarNotinha(
+    SaleDraft draft,
+    OfflineSaleContext contexto,
+    PrintedDocument document,
+  ) async {
+    final confirmar = _confirmOfflineNotinha;
+    if (confirmar == null || draft.paymentMethod != PaymentMethod.notinha) {
+      return null;
+    }
+
+    final confirmada = await confirmar(
+      sale: contexto.localSale(draft, document),
+      document1: document,
+      receiverName: contexto.seller.name,
+      payments: const [],
+    );
+    if (confirmada case Ok(:final value)) {
+      return SaleFinished(
+        result: SaleWithDocument(sale: value.sale, document: value.document),
+        printFailure: value.printFailure,
+        pendingOperationId: draft.uuid,
+        customerPhone: draft.customer?.phone,
+        discountPercentHundredths: draft.discountPercentHundredths,
+      );
+    }
+    return null;
   }
 }

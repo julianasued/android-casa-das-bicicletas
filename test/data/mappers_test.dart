@@ -21,6 +21,24 @@ void main() {
       expect(result.document!.type, DocumentType.doc1);
     });
 
+    test('notinha: imprime o comprovante de retirada que veio junto', () {
+      final json = saleJson(status: 'PENDENTE_NOTINHA')
+        ..['payment_method'] = 'NOTINHA'
+        ..['document_2'] = documentJson(reference: 'DOC2-L1-7F3A9C2B');
+
+      final result = saleWithDocumentFromJson(json);
+
+      expect(result.sale.status, SaleStatus.pendenteNotinha);
+      expect(result.document!.type, DocumentType.doc2);
+      expect(result.document!.reference, 'DOC2-L1-7F3A9C2B');
+    });
+
+    test('document_2 nulo (as outras formas): vale o documento 1', () {
+      final json = saleJson()..['document_2'] = null;
+
+      expect(saleWithDocumentFromJson(json).document!.type, DocumentType.doc1);
+    });
+
     test('venda sem documento não vira erro de mapeamento', () {
       final result = saleWithDocumentFromJson(saleJson(withDocument: false));
 
@@ -54,7 +72,8 @@ void main() {
         DocumentType.doc1,
       );
       expect(
-        printedDocumentFromJson(documentJson(reference: 'DOC2-L1-7F3A9C2B')).type,
+        printedDocumentFromJson(documentJson(reference: 'DOC2-L1-7F3A9C2B'))
+            .type,
         DocumentType.doc2,
       );
     });

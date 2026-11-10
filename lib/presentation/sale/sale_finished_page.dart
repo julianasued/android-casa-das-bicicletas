@@ -26,6 +26,7 @@ import '../../core/failure.dart';
 import '../../core/formatters.dart';
 import '../../core/money.dart';
 import '../../core/result.dart';
+import '../../domain/entities/payment_method.dart';
 import '../../domain/entities/pending_operation.dart';
 import '../../domain/entities/printed_document.dart';
 import '../../domain/entities/sale.dart';
@@ -166,8 +167,9 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
   /// O vendedor cancela a própria venda, sem PIN (09/11/2026).
   ///
   /// Ficou no lugar do "conferir pagamento". Só vale enquanto a venda aguarda
-  /// o caixa: depois de paga, o servidor recusa e a mensagem dele diz que o
-  /// cancelamento é no computador, com o PIN do Dono ou do Gerente.
+  /// o caixa — ou, notinha, enquanto o cliente não pagou nada dela: depois, o
+  /// servidor recusa e a mensagem dele diz que o cancelamento é no computador,
+  /// com o PIN do Dono ou do Gerente.
   Future<void> _cancelarVenda() async {
     if (_cancelando || _cancelada) return;
 
@@ -200,8 +202,9 @@ class _SaleFinishedPageState extends State<SaleFinishedPage> {
   Future<void> _reprint() async {
     setState(() => _reprinting = true);
 
-    final result =
-        await context.deps.reprintDocument(_idNoServidor, DocumentType.doc1);
+    // O mesmo papel que saiu: na notinha, o comprovante de retirada.
+    final tipo = widget.finished.result.document?.type ?? DocumentType.doc1;
+    final result = await context.deps.reprintDocument(_idNoServidor, tipo);
 
     if (!mounted) return;
     setState(() => _reprinting = false);
@@ -689,6 +692,8 @@ class _CorpoLargo extends StatelessWidget {
                           impresso: impresso,
                           motivo: finished.printFailure?.message,
                           notinha: sale.paymentMethod.requiresCustomer,
+                          retirada: finished.result.document?.type ==
+                              DocumentType.doc2,
                         ),
                       ],
                     ),
@@ -811,6 +816,7 @@ class _CorpoEstreito extends StatelessWidget {
                   impresso: impresso,
                   motivo: finished.printFailure?.message,
                   notinha: sale.paymentMethod.requiresCustomer,
+                  retirada: finished.result.document?.type == DocumentType.doc2,
                 ),
                 const SizedBox(height: 10),
                 _BotaoDeCancelar(
@@ -1006,10 +1012,13 @@ class _FaixaDaSituacao extends StatelessWidget {
         corDoValor: _Cor.vermelhoRotulo,
       );
     }
+    // A notinha não passa pelo caixa (10/11/2026): já sai entregue, com o
+    // valor na conta do cliente.
+    final notinha = sale.status == SaleStatus.pendenteNotinha;
     return _Faixa(
-      icone: Icons.schedule,
+      icone: notinha ? Icons.assignment_turned_in_outlined : Icons.schedule,
       rotulo: 'SITUAÇÃO',
-      valor: sale.status.label,
+      valor: notinha ? 'Notinha lançada · valor em aberto' : sale.status.label,
       fundo: _Cor.laranjaFundo,
       borda: _Cor.laranjaBorda,
       sombra: _Cor.laranjaSombra,
@@ -1197,18 +1206,25 @@ class _AvisoDoDocumento extends StatelessWidget {
   const _AvisoDoDocumento({
     required this.impresso,
     required this.notinha,
+    this.retirada = false,
     this.motivo,
   });
 
   final bool impresso;
   final bool notinha;
+
+  /// O papel é o comprovante de retirada — a notinha, que não passa pelo
+  /// caixa (10/11/2026) —, e não o encaminhamento.
+  final bool retirada;
   final String? motivo;
 
   @override
   Widget build(BuildContext context) {
-    final titulo = impresso
-        ? 'Documento de encaminhamento impresso'
-        : 'O documento não foi impresso';
+    final titulo = !impresso
+        ? 'O documento não foi impresso'
+        : retirada
+            ? 'Comprovante de retirada impresso'
+            : 'Documento de encaminhamento impresso';
 
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
@@ -1256,9 +1272,13 @@ class _AvisoDoDocumento extends StatelessWidget {
                 else
                   Text(
                     motivo ??
-                        'A venda está registrada. Resolva a impressora e '
-                            'reimprima — o cliente precisa do papel para pagar '
-                            'no caixa.',
+                        (retirada
+                            ? 'A notinha está registrada. Resolva a impressora '
+                                'e reimprima — é com o papel que o cliente leva '
+                                'a mercadoria.'
+                            : 'A venda está registrada. Resolva a impressora e '
+                                'reimprima — o cliente precisa do papel para '
+                                'pagar no caixa.'),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -1797,6 +1817,7 @@ class _PainelDeItens extends StatelessWidget {
             desconto: sale.discountAmount,
             total: sale.totalAmount,
             pagamento: sale.paymentMethod.label,
+            notinha: sale.paymentMethod == PaymentMethod.notinha,
           ),
         ],
       ),
@@ -1989,18 +2010,22 @@ class _LinhaDoPainel extends StatelessWidget {
 }
 
 /// O que o cliente vai pagar no caixa — e de onde esse número saiu.
+///
+/// Na notinha não há caixa (10/11/2026): o total fica na conta do cliente.
 class _RodapeDoPainel extends StatelessWidget {
   const _RodapeDoPainel({
     required this.subtotal,
     required this.desconto,
     required this.total,
     required this.pagamento,
+    required this.notinha,
   });
 
   final Money subtotal;
   final Money desconto;
   final Money total;
   final String pagamento;
+  final bool notinha;
 
   @override
   Widget build(BuildContext context) {
@@ -2022,9 +2047,9 @@ class _RodapeDoPainel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'TOTAL A PAGAR NO CAIXA',
-                  style: TextStyle(
+                Text(
+                  notinha ? 'TOTAL NA NOTINHA' : 'TOTAL A PAGAR NO CAIXA',
+                  style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1.8,

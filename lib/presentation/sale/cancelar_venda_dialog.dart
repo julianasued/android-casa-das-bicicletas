@@ -1,12 +1,14 @@
 /// Motivo e confirmação do cancelamento da venda (09/11/2026).
 ///
 /// O vendedor cancela a própria venda no M10, sem PIN, enquanto ela aguarda o
-/// caixa. O motivo é obrigatório — é o que fica na venda e na auditoria —, e
+/// caixa — ou, notinha, enquanto o cliente não pagou nada dela (10/11/2026).
+/// O motivo é obrigatório — é o que fica na venda e na auditoria —, e
 /// por isso os dois mais comuns já vêm prontos, num toque; o resto se digita.
 library;
 
 import 'package:flutter/material.dart';
 
+import '../../domain/entities/payment_method.dart';
 import '../../domain/entities/sale.dart';
 import '../shared/brand.dart';
 
@@ -96,11 +98,16 @@ class _CancelarVendaDialogState extends State<_CancelarVendaDialog> {
                 ),
               ),
               const SizedBox(height: 4),
-              const Text(
-                'Recolha o papel do cliente: depois de cancelada, a venda '
-                'não é mais recebida no caixa.',
+              Text(
+                // A notinha não passa pelo caixa (10/11/2026): cancelada, ela
+                // sai da conta do cliente.
+                widget.sale.paymentMethod == PaymentMethod.notinha
+                    ? 'Recolha o comprovante do cliente: depois de cancelada, '
+                        'a notinha sai da conta dele e a mercadoria volta.'
+                    : 'Recolha o papel do cliente: depois de cancelada, a '
+                        'venda não é mais recebida no caixa.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Marca.tintaFraca),
+                style: const TextStyle(fontSize: 14, color: Marca.tintaFraca),
               ),
               const SizedBox(height: 18),
               const Text(

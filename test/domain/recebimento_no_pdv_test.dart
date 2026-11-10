@@ -171,6 +171,53 @@ void main() {
         SaleStatus.pendenteNotinha);
   });
 
+  group('notinha não passa pelo caixa (10/11/2026)', () {
+    CreateSale venderComNotinhaDireta() => CreateSale(
+          sales: _SemRede(),
+          printer: impressora,
+          queue: fila,
+          holdOfflineDocument: true,
+          confirmOfflineNotinha: receber(),
+          offlineContext: () async => OfflineSaleContext(
+            identity: TerminalIdentity(
+              storeCode: 'L1',
+              storeName: 'Casa das Bicicletas',
+              learnedAt: DateTime.utc(2026, 11, 1),
+            ),
+            seller: const Seller(id: 12, name: 'João Silva'),
+            storeCode: 'L1',
+            storeId: 1,
+            payload: (draft) => {'uuid': draft.uuid},
+          ),
+        );
+
+    test('sem rede, sai direto o comprovante de retirada', () async {
+      final r = await venderComNotinhaDireta()(rascunho(PaymentMethod.notinha));
+      final venda = (r as Ok<SaleFinished>).value;
+
+      expect(venda.documentHeld, isFalse);
+      expect(venda.awaitsSync, isTrue);
+      expect(venda.result.sale.status, SaleStatus.pendenteNotinha);
+      expect(venda.result.document!.type, DocumentType.doc2);
+      expect(impressora.printed, hasLength(1));
+      // A confirmação sobe junto: o servidor de antes precisava dela, o de
+      // hoje a recebe como reenvio.
+      expect(fila.enfileiradas.map((o) => o.type),
+          [OperationType.saleCreate, OperationType.cashPayment]);
+      expect(fila.enfileiradas.last.payload['payments'], isEmpty);
+    });
+
+    test('as outras formas continuam esperando a escolha', () async {
+      final r = await venderComNotinhaDireta()(rascunho(PaymentMethod.pix));
+      final venda = (r as Ok<SaleFinished>).value;
+
+      expect(venda.documentHeld, isTrue);
+      expect(venda.result.sale.status, SaleStatus.aguardandoCaixa);
+      expect(fila.enfileiradas, hasLength(1));
+      expect(impressora.printed, isEmpty);
+    });
+  });
+
   test('o pagamento nunca fica antes da venda, nem com o relógio atrasado',
       () async {
     final venda = await venderSemRede(PaymentMethod.pix);

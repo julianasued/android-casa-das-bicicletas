@@ -22,12 +22,16 @@ void main() {
         (_) => jsonResponse({'id': 1, 'sale_id': 10482, 'reason': 'ok'}),
       );
 
-  Future<void> montar(WidgetTester tester, RecordingTransport http) async {
+  Future<void> montar(
+    WidgetTester tester,
+    RecordingTransport http, {
+    Map<String, Object?>? venda,
+  }) async {
     tester.view.physicalSize = const Size(720, 1440);
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.reset);
 
-    final json = saleJson();
+    final json = venda ?? saleJson();
     json['document_1'] = documentJson();
 
     await tester.pumpWidget(
@@ -150,5 +154,25 @@ void main() {
     expect(find.textContaining('já passou pelo caixa'), findsOneWidget);
     expect(find.text('Cancelada'), findsNothing);
     expect(podeTocar(tester, find.byKey(const Key('cancelar-venda'))), isTrue);
+  });
+
+  testWidgets('notinha lançada também cancela pelo M10 (10/11/2026)',
+      (tester) async {
+    final http = servidorQueCancela();
+    final notinha = saleJson(status: 'PENDENTE_NOTINHA')
+      ..['payment_method'] = 'NOTINHA'
+      ..['customer_id'] = 5
+      ..['customer_name'] = 'Carlos Lima'
+      ..['document_2'] = documentJson(reference: 'DOC2-L1-7F3A9C2B');
+    await montar(tester, http, venda: notinha);
+
+    await abrirCancelamento(tester);
+    expect(find.textContaining('a notinha sai da conta dele'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('motivo-Venda errada')));
+    await tester.pumpAndSettle();
+    await confirmar(tester);
+
+    expect(http.lastRequest.url.path, endsWith('/sales/10482/cancel-own/'));
+    expect(find.text('Cancelada'), findsOneWidget);
   });
 }
