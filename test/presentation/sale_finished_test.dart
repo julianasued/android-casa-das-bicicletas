@@ -172,6 +172,50 @@ void main() {
     });
   });
 
+  group('notinha não passa pelo caixa (10/11/2026)', () {
+    SaleFinished notinha() {
+      final json = saleJson(status: 'PENDENTE_NOTINHA')
+        ..['payment_method'] = 'NOTINHA'
+        ..['customer_id'] = 5
+        ..['customer_name'] = 'Carlos Lima'
+        ..['document_1'] = documentJson()
+        ..['document_2'] = documentJson(reference: 'DOC2-L1-7F3A9C2B');
+      return SaleFinished(result: saleWithDocumentFromJson(json));
+    }
+
+    testWidgets('diz que a notinha foi lançada, sem mandar ao caixa',
+        (tester) async {
+      await montar(tester, notinha());
+
+      expect(find.text('Notinha lançada · valor em aberto'), findsOneWidget);
+      expect(find.text('Comprovante de retirada impresso'), findsOneWidget);
+      expect(find.text('TOTAL NA NOTINHA'), findsOneWidget);
+      expect(find.text('TOTAL A PAGAR NO CAIXA'), findsNothing);
+      expect(find.text('Documento de encaminhamento impresso'), findsNothing);
+    });
+
+    testWidgets('reimprime o comprovante de retirada, não o encaminhamento',
+        (tester) async {
+      final transport = RecordingTransport((request) {
+        if (request.url.path.contains('document-2/print')) {
+          return jsonResponse(
+            documentJson(reference: 'DOC2-L1-7F3A9C2B-R2', sequence: 2),
+          );
+        }
+        return jsonResponse(const <String, Object?>{});
+      });
+
+      await montar(tester, notinha(), transport: transport);
+      await rolarAte(tester, find.text('REIMPRIMIR DOCUMENTO'));
+      await tester.tap(find.text('REIMPRIMIR DOCUMENTO'));
+      await tester.pumpAndSettle();
+
+      final caminhos = transport.requests.map((r) => r.url.path);
+      expect(caminhos.any((c) => c.contains('document-2/print')), isTrue);
+      expect(caminhos.any((c) => c.contains('document-1/print')), isFalse);
+    });
+  });
+
   group('reimpressão com resposta perdida (OFF-014)', () {
     testWidgets('o terminal não afirma que a via não foi registrada', (tester) async {
       // A rota é propositalmente não idempotente: cada pedido gera uma via nova
