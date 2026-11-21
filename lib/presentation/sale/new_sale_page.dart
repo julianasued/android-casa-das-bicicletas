@@ -867,6 +867,8 @@ class _CartPanel extends StatelessWidget {
                   customerName: draft.customer?.name,
                   itemCount: draft.lineCount,
                   total: totals.total,
+                  note: draft.note.trim(),
+                  onEditNote: () => editarOQueLevou(context, controller),
                 ),
               ],
               const SizedBox(height: 8),
@@ -1093,21 +1095,25 @@ class _CartLine extends StatelessWidget {
 /// documento que vai com o cliente e volta na hora de pagar: conferir isso
 /// antes de imprimir é mais barato que descobrir divergência depois.
 ///
-/// Prazo e observação aparecem na referência visual, mas não existem no
-/// contrato: `SaleCreateSerializer` aceita apenas uuid, customer_id,
-/// payment_method, discount_percent e items, e o `due_date`
-/// do Receivable nasce nulo. Campo que não é enviado a lugar nenhum seria
-/// promessa falsa ao operador, então não estão aqui.
+/// "O que levou" (21/11/2026) é a observação da referência visual: texto
+/// livre e opcional, que vai com a venda (`note`), sai no comprovante e
+/// aparece nas notinhas do cliente — quem paga depois quer saber o que foi
+/// levado. O prazo continua fora: o `due_date` do Receivable nasce nulo, e
+/// campo que não vai a lugar nenhum seria promessa falsa ao operador.
 class _NotinhaDetails extends StatelessWidget {
   const _NotinhaDetails({
     required this.customerName,
     required this.itemCount,
     required this.total,
+    required this.note,
+    required this.onEditNote,
   });
 
   final String? customerName;
   final int itemCount;
   final Money total;
+  final String note;
+  final VoidCallback onEditNote;
 
   @override
   Widget build(BuildContext context) {
@@ -1147,8 +1153,114 @@ class _NotinhaDetails extends StatelessWidget {
             value: itemCount == 1 ? '1 item' : '$itemCount itens',
           ),
           _NotinhaRow(label: 'Valor', value: total.toDisplayString()),
+          const SizedBox(height: 4),
+          // O toque abre a caixa de texto com o teclado do sistema: digitar
+          // ali, e não no painel, deixa o teclado da venda e o leitor como
+          // estão.
+          InkWell(
+            key: const Key('o-que-levou'),
+            onTap: onEditNote,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 92,
+                    child: Text(
+                      'O que levou',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: semCliente ? theme.colorScheme.onErrorContainer : null,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      note.isEmpty ? 'Toque para descrever (opcional)' : note,
+                      key: const Key('o-que-levou-texto'),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: note.isEmpty ? FontWeight.normal : FontWeight.w600,
+                        fontStyle: note.isEmpty ? FontStyle.italic : null,
+                        color: note.isEmpty
+                            ? theme.colorScheme.primary
+                            : (semCliente ? theme.colorScheme.onErrorContainer : null),
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.edit_outlined, size: 18, color: theme.colorScheme.primary),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// Limite do que o vendedor descreve — o mesmo do servidor (`Sale.note`).
+const int limiteDoQueLevou = 200;
+
+/// Caixa de texto "O que o cliente levou", com o teclado do sistema.
+///
+/// Opcional: "Pronto" com o campo vazio limpa a descrição. Voltar não muda
+/// nada do que estava.
+Future<void> editarOQueLevou(BuildContext context, NewSaleController controller) async {
+  final texto = await showDialog<String>(
+    context: context,
+    builder: (_) => _OQueLevouDialog(inicial: controller.draft.note),
+  );
+  if (texto != null) controller.setNote(texto.trim());
+}
+
+class _OQueLevouDialog extends StatefulWidget {
+  const _OQueLevouDialog({required this.inicial});
+
+  final String inicial;
+
+  @override
+  State<_OQueLevouDialog> createState() => _OQueLevouDialogState();
+}
+
+class _OQueLevouDialogState extends State<_OQueLevouDialog> {
+  late final TextEditingController _texto = TextEditingController(text: widget.inicial);
+
+  @override
+  void dispose() {
+    _texto.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('O que o cliente levou?'),
+      content: TextField(
+        key: const Key('campo-o-que-levou'),
+        controller: _texto,
+        autofocus: true,
+        maxLength: limiteDoQueLevou,
+        minLines: 2,
+        maxLines: 4,
+        keyboardType: TextInputType.multiline,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: const InputDecoration(
+          hintText: 'Ex.: 2 câmaras aro 26 e 1 remendo — João',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Voltar'),
+        ),
+        FilledButton(
+          key: const Key('pronto-o-que-levou'),
+          onPressed: () => Navigator.of(context).pop(_texto.text),
+          child: const Text('Pronto'),
+        ),
+      ],
     );
   }
 }

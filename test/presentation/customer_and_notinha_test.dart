@@ -274,6 +274,34 @@ void main() {
       expect(find.text('Composição'), findsOneWidget);
       expect(find.text('Valor'), findsOneWidget);
     });
+
+    testWidgets('o que levou: opcional, com o teclado do sistema', (tester) async {
+      await montarVenda(tester);
+      await tocar(tester, find.text('NOTINHA'));
+
+      expect(find.text('Toque para descrever (opcional)'), findsOneWidget);
+
+      await tocar(tester, find.byKey(const Key('o-que-levou')));
+      final campo = find.byKey(const Key('campo-o-que-levou'));
+      expect(campo, findsOneWidget);
+      expect(
+        tester.widget<TextField>(campo).keyboardType,
+        TextInputType.multiline,
+        reason: 'texto livre, no teclado do sistema',
+      );
+      await tester.enterText(campo, '  Câmara aro 26 — João  ');
+      await tester.tap(find.byKey(const Key('pronto-o-que-levou')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Câmara aro 26 — João'), findsOneWidget);
+
+      // Voltar não muda o que estava.
+      await tocar(tester, find.byKey(const Key('o-que-levou')));
+      await tester.enterText(find.byKey(const Key('campo-o-que-levou')), 'outra coisa');
+      await tester.tap(find.text('Voltar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Câmara aro 26 — João'), findsOneWidget);
+    });
   });
 }
 

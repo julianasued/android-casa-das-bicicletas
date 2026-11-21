@@ -58,6 +58,7 @@ class PrintedDocument {
     required this.totalAmount,
     required this.notice,
     this.customerName,
+    this.saleNote = '',
     this.confirmedAt,
     this.cashierName,
     this.payments = const <DocumentPayment>[],
@@ -87,6 +88,10 @@ class PrintedDocument {
   final String sellerName;
   final String terminalName;
   final String? customerName;
+
+  /// O que o cliente levou, descrito pelo vendedor (21/11/2026). Vazio quando
+  /// ninguém descreveu — e aí não sai nada no papel.
+  final String saleNote;
 
   final List<SaleItem> items;
   final Money grossAmount;

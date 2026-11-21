@@ -321,6 +321,12 @@ class NewSaleController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// O que o cliente levou, descrito pelo vendedor na notinha (21/11/2026).
+  void setNote(String note) {
+    draft.note = note;
+    notifyListeners();
+  }
+
   /// Desconto negociado, em percentual ou em reais; acima do teto o domínio
   /// recusa (13.3).
   void setDiscount(SaleDiscount discount) {

@@ -223,6 +223,7 @@ Receivable receivableFromJson(Map<String, Object?> json) => Receivable(
       pendingAmount: readMoney(json, 'pending_amount'),
       status: ReceivableStatus.fromCode(readStringOrNull(json, 'status')),
       createdAt: readDateTime(json, 'created_at'),
+      saleNote: readStringOrNull(json, 'sale_note') ?? '',
     );
 
 SaleItem saleItemFromJson(Map<String, Object?> json) => SaleItem(
@@ -299,6 +300,7 @@ PrintedDocument printedDocumentFromJson(Map<String, Object?> json) {
     sellerName: readStringOrNull(json, 'seller_name') ?? '',
     terminalName: readStringOrNull(json, 'terminal_name') ?? '',
     customerName: readStringOrNull(json, 'customer_name'),
+    saleNote: readStringOrNull(json, 'sale_note') ?? '',
     items: [for (final item in readList(json['items'])) saleItemFromJson(item)],
     grossAmount: readMoneyOrZero(json, 'gross_amount'),
     discountAmount: readMoneyOrZero(json, 'discount_amount'),

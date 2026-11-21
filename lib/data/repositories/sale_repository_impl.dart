@@ -60,6 +60,9 @@ class SaleRepositoryImpl implements SaleRepository {
         'uuid': draft.uuid,
         'payment_method': draft.paymentMethod.code,
         if (draft.customer != null) 'customer_id': draft.customer!.id,
+        // O que o cliente levou (21/11/2026): só na notinha, e só se descrito.
+        // Servidor antigo ignora o campo, em vez de recusar a venda.
+        if (draft.noteToSend.isNotEmpty) 'note': draft.noteToSend,
         'discount_percent': _percent(draft.discountPercentHundredths),
         // Negociado em reais vai em reais: nenhum percentual de duas casas
         // produz R$ 69,00 sobre R$ 1.387,93, e o servidor recalcularia o
