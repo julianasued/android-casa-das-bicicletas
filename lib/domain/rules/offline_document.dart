@@ -78,6 +78,7 @@ PrintedDocument offlineDocument1({
     sellerName: seller.name,
     terminalName: identity.terminalName ?? '',
     customerName: draft.customer?.name,
+    saleNote: draft.noteToSend,
 
     // `id` fica em zero: é do servidor, como o da venda. O desconto de cada
     // linha sai da diferença entre o bruto e o total rateado, e não de uma

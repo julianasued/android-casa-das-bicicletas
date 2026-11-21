@@ -187,6 +187,7 @@ class ReceiveOfflinePayment {
       sellerName: document1.sellerName,
       terminalName: document1.terminalName,
       customerName: document1.customerName,
+      saleNote: document1.saleNote,
       items: document1.items,
       grossAmount: document1.grossAmount,
       discountAmount: document1.discountAmount,

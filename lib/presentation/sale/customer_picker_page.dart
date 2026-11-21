@@ -754,14 +754,16 @@ class _CustomerSheetState extends State<_CustomerSheet> {
                   'Venda ${receivable.saleId} · ${receivable.status.label}',
                 ),
                 subtitle: Text(
-                  receivable.isPartiallyPaid
-                      // Mostrar o pago junto: sem isso, um saldo menor que o
-                      // valor da venda parece erro de cálculo.
-                      ? '${formatDate(receivable.createdAt)} · '
-                          'de ${receivable.originalAmount.toDisplayString()} '
-                          'pagou ${receivable.paidAmount.toDisplayString()}'
-                      : '${formatDate(receivable.createdAt)} · '
-                          'de ${receivable.originalAmount.toDisplayString()}',
+                  (receivable.isPartiallyPaid
+                          // Mostrar o pago junto: sem isso, um saldo menor que o
+                          // valor da venda parece erro de cálculo.
+                          ? '${formatDate(receivable.createdAt)} · '
+                              'de ${receivable.originalAmount.toDisplayString()} '
+                              'pagou ${receivable.paidAmount.toDisplayString()}'
+                          : '${formatDate(receivable.createdAt)} · '
+                              'de ${receivable.originalAmount.toDisplayString()}') +
+                      // O que levou (21/11/2026): é o que o cliente pergunta.
+                      (receivable.saleNote.isEmpty ? '' : '\nLevou: ${receivable.saleNote}'),
                 ),
                 trailing: Text(
                   receivable.pendingAmount.toDisplayString(),

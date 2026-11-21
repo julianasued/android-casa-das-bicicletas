@@ -114,6 +114,15 @@ class SaleDraft {
   PaymentMethod paymentMethod;
   Customer? customer;
 
+  /// O que o cliente levou, em texto livre (21/11/2026). Opcional, e só vale
+  /// na notinha: quem paga depois quer saber o que foi levado.
+  String note = '';
+
+  /// O texto que segue com a venda: só na notinha, sem espaços nas pontas.
+  /// Trocar para outra forma não apaga o que foi digitado — voltar para
+  /// notinha é comum —, mas a venda à vista não leva a descrição.
+  String get noteToSend => paymentMethod.requiresCustomer ? note.trim() : '';
+
   /// O desconto como foi negociado — em percentual ou em reais.
   SaleDiscount discount = const SaleDiscount.none();
 
@@ -195,6 +204,7 @@ class SaleDraft {
     _lines.clear();
     discount = const SaleDiscount.none();
     customer = null;
+    note = '';
   }
 
   SaleTotals get totals {

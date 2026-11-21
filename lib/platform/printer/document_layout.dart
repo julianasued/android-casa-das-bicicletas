@@ -130,6 +130,7 @@ class DocumentLayout {
         if (document.customerName != null)
           PrintText(_labeled('Cliente', document.customerName!)),
         PrintText(_labeled('Pagamento', document.paymentMethodLabel)),
+        ..._oQueLevou(document),
         PrintText(_divider()),
         PrintText(_row('DESCRIÇÃO', 'TOTAL'), bold: true),
         const PrintText('  QTD x UNITÁRIO', bold: true),
@@ -200,12 +201,22 @@ class DocumentLayout {
           ),
         ),
         PrintText(_labeled('Vendedor', document.sellerName)),
+        ..._oQueLevou(document),
         PrintText(
           _row('Total da venda', document.totalAmount.toDisplayString()),
           bold: true,
         ),
         const PrintBanner('MERCADORIA LIBERADA', large: true),
       ];
+
+  /// O que o cliente levou, como o vendedor descreveu (21/11/2026) — inteiro,
+  /// quebrado na largura da bobina. Sem descrição, nada sai.
+  List<PrintCommand> _oQueLevou(PrintedDocument document) => document.saleNote.isEmpty
+      ? const <PrintCommand>[]
+      : <PrintCommand>[
+          const PrintText('O que levou:', bold: true),
+          ..._wrapped(document.saleNote),
+        ];
 
   /// O código da venda, para o leitor e para quem precisar digitar.
   ///

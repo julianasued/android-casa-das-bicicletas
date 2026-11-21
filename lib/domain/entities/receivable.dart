@@ -48,10 +48,15 @@ class Receivable {
     required this.pendingAmount,
     required this.status,
     required this.createdAt,
+    this.saleNote = '',
   });
 
   final int id;
   final int saleId;
+
+  /// O que o cliente levou nessa notinha, como o vendedor descreveu (21/11/2026).
+  /// Vazio quando ninguém descreveu, e nas notinhas de antes disso.
+  final String saleNote;
   final Money originalAmount;
   final Money paidAmount;
   final Money pendingAmount;
